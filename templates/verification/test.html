@@ -1,0 +1,257 @@
+{% extends "layout.html" %}
+{% set title = "Biometric Verification Test" %}
+{% block content %}
+
+<div class="grid lg:grid-cols-2 gap-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Verify Student Biometric</div>
+    <p class="text-xs text-slate-500 mt-1">Use this page to test matching without creating attendance records.</p>
+
+    <div class="mt-4 space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Student ID / Index (optional)</label>
+        <input id="studentId" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+               placeholder="Leave blank for automatic student identification">
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-black overflow-hidden relative">
+        <video id="video" class="w-full h-80 object-cover" autoplay playsinline></video>
+      </div>
+      <canvas id="canvas" class="hidden"></canvas>
+
+      <div class="flex flex-col sm:flex-row gap-2">
+        <button id="btnCapture"
+                class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-3 text-sm font-semibold hover:bg-brand-700">
+          Capture Image
+        </button>
+        <input id="probeFile" type="file" accept="image/*"
+               class="w-full text-xs text-slate-600 file:mr-2 file:rounded-lg file:border file:border-slate-200 file:bg-white file:px-3 file:py-2">
+      </div>
+
+      <div class="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+        <img id="probePreview" class="w-full h-64 object-cover hidden" alt="Probe preview">
+        <div id="probeEmpty" class="h-64 flex items-center justify-center text-slate-500 text-sm">No probe image selected</div>
+      </div>
+
+      <button id="btnVerify"
+              class="w-full rounded-xl bg-emerald-600 text-white px-4 py-3 text-sm font-semibold hover:bg-emerald-700">
+        Run Verification Test
+      </button>
+
+      <div id="verifyResult" class="rounded-xl border border-slate-200 p-4 text-sm">
+        <div class="text-slate-500">Result</div>
+        <div id="resultText" class="mt-2 font-semibold">Waiting for test.</div>
+        <div id="studentDetails" class="mt-3 hidden">
+          <div class="text-xs uppercase tracking-wide text-slate-500">Student Details</div>
+          <dl class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div><dt class="text-slate-500">ID</dt><dd id="d-id" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Student ID</dt><dd id="d-student-id" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">First Name</dt><dd id="d-first-name" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Last Name</dt><dd id="d-last-name" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Email</dt><dd id="d-email" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Phone</dt><dd id="d-phone" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Department</dt><dd id="d-department" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Course</dt><dd id="d-course" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Year Level</dt><dd id="d-year-level" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Active</dt><dd id="d-is-active" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Registered</dt><dd id="d-registration-date" class="font-medium text-slate-800"></dd></div>
+            <div><dt class="text-slate-500">Last Updated</dt><dd id="d-last-updated" class="font-medium text-slate-800"></dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Update Student Biometric</div>
+    <p class="text-xs text-slate-500 mt-1">Upload 3 or more clear face images to refresh saved templates.</p>
+
+    <div class="mt-4 space-y-3">
+      <input id="biometricFiles" type="file" accept="image/*" multiple
+             class="w-full text-xs text-slate-600 file:mr-2 file:rounded-lg file:border file:border-slate-200 file:bg-white file:px-3 file:py-2">
+
+      <button id="btnUpdateBiometric"
+              class="w-full rounded-xl bg-indigo-600 text-white px-4 py-3 text-sm font-semibold hover:bg-indigo-700">
+        Update Biometric Templates
+      </button>
+
+      <div id="updateResult" class="rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
+        Waiting for update.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const studentIdInput = document.getElementById("studentId");
+  const probeFile = document.getElementById("probeFile");
+  const probePreview = document.getElementById("probePreview");
+  const probeEmpty = document.getElementById("probeEmpty");
+  const btnCapture = document.getElementById("btnCapture");
+  const btnVerify = document.getElementById("btnVerify");
+  const resultText = document.getElementById("resultText");
+  const studentDetails = document.getElementById("studentDetails");
+  const detailNodes = {
+    id: document.getElementById("d-id"),
+    student_id: document.getElementById("d-student-id"),
+    first_name: document.getElementById("d-first-name"),
+    last_name: document.getElementById("d-last-name"),
+    email: document.getElementById("d-email"),
+    phone: document.getElementById("d-phone"),
+    department: document.getElementById("d-department"),
+    course: document.getElementById("d-course"),
+    year_level: document.getElementById("d-year-level"),
+    is_active: document.getElementById("d-is-active"),
+    registration_date: document.getElementById("d-registration-date"),
+    last_updated: document.getElementById("d-last-updated")
+  };
+  const biometricFiles = document.getElementById("biometricFiles");
+  const btnUpdateBiometric = document.getElementById("btnUpdateBiometric");
+  const updateResult = document.getElementById("updateResult");
+
+  let probeImageDataUrl = "";
+  let stream = null;
+
+  function setProbe(dataUrl) {
+    probeImageDataUrl = dataUrl || "";
+    if (!probeImageDataUrl) {
+      probePreview.classList.add("hidden");
+      probeEmpty.classList.remove("hidden");
+      return;
+    }
+    probePreview.src = probeImageDataUrl;
+    probePreview.classList.remove("hidden");
+    probeEmpty.classList.add("hidden");
+  }
+
+  function clearStudentDetails() {
+    Object.values(detailNodes).forEach((el) => { if (el) el.textContent = ""; });
+    studentDetails.classList.add("hidden");
+  }
+
+  function renderStudentDetails(student) {
+    if (!student || typeof student !== "object") {
+      clearStudentDetails();
+      return;
+    }
+    const value = (v) => (v === null || v === undefined || v === "" ? "N/A" : String(v));
+    detailNodes.id.textContent = value(student.id);
+    detailNodes.student_id.textContent = value(student.student_id);
+    detailNodes.first_name.textContent = value(student.first_name);
+    detailNodes.last_name.textContent = value(student.last_name);
+    detailNodes.email.textContent = value(student.email);
+    detailNodes.phone.textContent = value(student.phone);
+    detailNodes.department.textContent = value(student.department);
+    detailNodes.course.textContent = value(student.course);
+    detailNodes.year_level.textContent = value(student.year_level);
+    detailNodes.is_active.textContent = student.is_active === true ? "Yes" : (student.is_active === false ? "No" : "N/A");
+    detailNodes.registration_date.textContent = value(student.registration_date);
+    detailNodes.last_updated.textContent = value(student.last_updated);
+    studentDetails.classList.remove("hidden");
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function startCamera() {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    video.srcObject = stream;
+  }
+
+  function capture() {
+    if (!video.srcObject || !video.videoWidth || !video.videoHeight) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setProbe(canvas.toDataURL("image/jpeg", 0.92));
+  }
+
+  async function runVerification() {
+    const studentId = (studentIdInput.value || "").trim();
+    if (!probeImageDataUrl) {
+      resultText.textContent = "Capture or upload an image first.";
+      return;
+    }
+
+    resultText.textContent = "Verifying...";
+    clearStudentDetails();
+    try {
+      const payload = { live_image: probeImageDataUrl };
+      if (studentId) payload.student_id = studentId;
+      const res = await fetch("/students/verify-biometric", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Verification failed");
+      resultText.textContent = body.match
+        ? `MATCHED STUDENT (confidence ${Number(body.confidence || 0).toFixed(2)})`
+        : `NO MATCH (confidence ${Number(body.confidence || 0).toFixed(2)})`;
+      renderStudentDetails(body.student);
+    } catch (err) {
+      resultText.textContent = err.message || "Verification failed";
+      clearStudentDetails();
+    }
+  }
+
+  async function updateBiometric() {
+    const studentId = (studentIdInput.value || "").trim();
+    if (!studentId) {
+      updateResult.textContent = "Enter student ID first.";
+      return;
+    }
+    const files = Array.from(biometricFiles.files || []);
+    if (!files.length) {
+      updateResult.textContent = "Select one or more images.";
+      return;
+    }
+
+    updateResult.textContent = "Updating biometric templates...";
+    try {
+      const faceImages = [];
+      for (const file of files.slice(0, 8)) {
+        faceImages.push(await readFileAsDataUrl(file));
+      }
+      const res = await fetch(`/students/update/${encodeURIComponent(studentId)}/biometric`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ face_images: faceImages })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Biometric update failed");
+      updateResult.textContent = body.message || "Biometric data updated successfully";
+    } catch (err) {
+      updateResult.textContent = err.message || "Biometric update failed";
+    }
+  }
+
+  btnCapture.addEventListener("click", capture);
+  btnVerify.addEventListener("click", runVerification);
+  btnUpdateBiometric.addEventListener("click", updateBiometric);
+  probeFile.addEventListener("change", async () => {
+    const file = probeFile.files && probeFile.files[0];
+    if (!file) return;
+    setProbe(await readFileAsDataUrl(file));
+  });
+
+  (async () => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) return;
+      await startCamera();
+    } catch (e) {
+      resultText.textContent = "Camera unavailable. Use file upload instead.";
+    }
+  })();
+</script>
+
+{% endblock %}

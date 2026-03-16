@@ -1,0 +1,119 @@
+{% extends "layout.html" %}
+{% set title = "Exam Halls Setup" %}
+{% block content %}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Add or Update Hall</div>
+    <p class="text-xs text-slate-500 mt-1">Create exam halls and set the maximum student capacity.</p>
+
+    <form id="hallForm" class="mt-4 space-y-3">
+      <input id="hallName" class="w-full rounded-xl border border-slate-200 px-4 py-2" placeholder="Hall name (e.g. Hall A)" required />
+      <input id="hallCapacity" type="number" min="1" class="w-full rounded-xl border border-slate-200 px-4 py-2" placeholder="Capacity" required />
+      <button class="w-full rounded-xl bg-brand-600 text-white py-3 font-semibold hover:bg-brand-700">Save Hall</button>
+    </form>
+    <p id="hallMsg" class="text-sm mt-3"></p>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Configured Halls</div>
+    <p class="text-xs text-slate-500 mt-1">Disable halls that should no longer be used.</p>
+
+    <div class="mt-4 overflow-auto">
+      <table class="w-full text-sm">
+        <thead class="text-left text-slate-500 border-b border-slate-200">
+          <tr>
+            <th class="py-2 pr-3">Hall</th>
+            <th class="py-2 pr-3">Capacity</th>
+            <th class="py-2 pr-3">Status</th>
+            <th class="py-2 pr-3">Action</th>
+          </tr>
+        </thead>
+        <tbody id="hallsTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  const hallForm = document.getElementById("hallForm");
+  const hallMsg = document.getElementById("hallMsg");
+  const hallsTableBody = document.getElementById("hallsTableBody");
+
+  function setMessage(text, ok = false) {
+    hallMsg.textContent = text;
+    hallMsg.className = ok ? "text-sm mt-3 text-emerald-700" : "text-sm mt-3 text-rose-700";
+  }
+
+  function rowHtml(hall) {
+    const active = !!hall.is_active;
+    return `
+      <tr class="border-b border-slate-100">
+        <td class="py-3 pr-3">${hall.name || ""}</td>
+        <td class="py-3 pr-3">${hall.capacity || 0}</td>
+        <td class="py-3 pr-3">${active ? "Active" : "Inactive"}</td>
+        <td class="py-3 pr-3">
+          <button data-id="${hall.id}" data-next="${active ? "false" : "true"}"
+                  class="toggle-hall rounded-lg border border-slate-200 px-3 py-1 hover:bg-slate-50">
+            ${active ? "Disable" : "Enable"}
+          </button>
+        </td>
+      </tr>
+    `;
+  }
+
+  async function loadHalls() {
+    const res = await fetch("/admin/halls");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessage(data.error || "Failed to load halls");
+      return;
+    }
+    hallsTableBody.innerHTML = (data.halls || []).map(rowHtml).join("") || `
+      <tr><td colspan="4" class="py-4 text-slate-500">No halls configured.</td></tr>
+    `;
+  }
+
+  hallForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      name: document.getElementById("hallName").value.trim(),
+      capacity: Number(document.getElementById("hallCapacity").value)
+    };
+    const res = await fetch("/admin/halls", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessage(data.error || "Failed to save hall");
+      return;
+    }
+    setMessage("Hall saved successfully", true);
+    hallForm.reset();
+    await loadHalls();
+  });
+
+  hallsTableBody.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".toggle-hall");
+    if (!btn) return;
+    const hallId = Number(btn.dataset.id);
+    const nextActive = String(btn.dataset.next) === "true";
+    const res = await fetch(`/admin/halls/${hallId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: nextActive })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessage(data.error || "Failed to update hall");
+      return;
+    }
+    await loadHalls();
+  });
+
+  loadHalls();
+</script>
+
+{% endblock %}

@@ -1,0 +1,576 @@
+{% extends "layout.html" %}
+{% set title = "Program Course Setup" %}
+{% block content %}
+
+<div class="grid lg:grid-cols-3 gap-4">
+  <div class="lg:col-span-1 space-y-4">
+    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <div class="text-sm font-semibold">Add Program</div>
+      <p class="text-xs text-slate-500 mt-1">Set program duration and default semesters/year. Level overrides are optional exceptions.</p>
+
+      <form id="programForm" class="mt-4 space-y-3">
+        <div>
+          <label class="text-xs text-slate-500">Program Name</label>
+          <input id="programNameInput" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                 placeholder="e.g. BSc Information Technology Management" required>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Duration (Years)</label>
+          <input id="durationYearsInput" type="number" min="1" max="10" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                 value="4" required>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Default Semesters Per Year</label>
+          <input id="semestersPerYearInput" type="number" min="1" max="8" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                 value="2" required>
+        </div>
+        <button class="w-full rounded-xl bg-slate-900 text-white px-4 py-3 text-sm font-semibold hover:bg-slate-800">
+          Save Program
+        </button>
+      </form>
+      <p id="programMsg" class="text-xs mt-3 text-slate-500"></p>
+
+      <div class="mt-4 rounded-xl border border-slate-200">
+        <div class="px-3 py-2 text-xs text-slate-500 border-b border-slate-200">Programs (available and unavailable)</div>
+        <div id="programList" class="max-h-56 overflow-auto divide-y">
+          <div class="px-3 py-3 text-sm text-slate-500">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <div class="text-sm font-semibold">Semester Rule</div>
+      <p class="text-xs text-slate-500 mt-1">
+        `semesters_per_year` is defined once on each program and applied to all levels in that program.
+      </p>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <div class="text-sm font-semibold">Add Course To Program Level</div>
+      <form id="courseForm" class="mt-4 space-y-3">
+        <div>
+          <label class="text-xs text-slate-500">Program</label>
+          <select id="programSelect" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+            <option value="">Select program</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Level</label>
+          <select id="levelName" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+            <option value="">Select level</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="300">300</option>
+            <option value="400">400</option>
+            <option value="500">500</option>
+            <option value="600">600</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Semester</label>
+          <select id="semesterNo" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+            <option value="">Select semester</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Course Code</label>
+          <input id="courseCode" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                 placeholder="e.g. ITM 401" required>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Course Title</label>
+          <input id="courseTitle" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                 placeholder="e.g. Information Security" required>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Credit Units (optional)</label>
+          <input id="creditUnits" type="number" min="0" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                 placeholder="e.g. 3">
+        </div>
+        <button class="w-full rounded-xl bg-brand-600 text-white px-4 py-3 text-sm font-semibold hover:bg-brand-700">
+          Save Course
+        </button>
+      </form>
+      <p id="courseMsg" class="text-xs mt-3 text-slate-500"></p>
+    </div>
+  </div>
+
+  <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="flex flex-col sm:flex-row sm:items-end gap-2 sm:justify-between">
+      <div>
+        <div class="text-sm font-semibold">Program-Level Courses</div>
+        <p class="text-xs text-slate-500 mt-1">Filter and manage active mappings.</p>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <select id="filterProgram" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+          <option value="">All programs</option>
+        </select>
+        <select id="filterLevel" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+          <option value="">All levels</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="300">300</option>
+          <option value="400">400</option>
+          <option value="500">500</option>
+          <option value="600">600</option>
+        </select>
+        <select id="filterSemester" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+          <option value="">All semesters</option>
+        </select>
+        <button id="btnFilter" class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">Apply</button>
+      </div>
+    </div>
+
+    <div class="mt-4 overflow-auto rounded-xl border border-slate-200">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500">
+          <tr>
+            <th class="text-left py-3 px-3">Program</th>
+            <th class="text-left py-3 px-3">Level</th>
+            <th class="text-left py-3 px-3">Semester</th>
+            <th class="text-left py-3 px-3">Code</th>
+            <th class="text-left py-3 px-3">Title</th>
+            <th class="text-left py-3 px-3">Units</th>
+            <th class="text-left py-3 px-3">Action</th>
+          </tr>
+        </thead>
+        <tbody id="courseBody" class="divide-y">
+          <tr><td colspan="7" class="py-6 text-center text-slate-500">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  const programForm = document.getElementById("programForm");
+  const courseForm = document.getElementById("courseForm");
+  const programMsg = document.getElementById("programMsg");
+  const courseMsg = document.getElementById("courseMsg");
+  const programList = document.getElementById("programList");
+  const programSelect = document.getElementById("programSelect");
+  const semesterNo = document.getElementById("semesterNo");
+  const filterProgram = document.getElementById("filterProgram");
+  const filterLevel = document.getElementById("filterLevel");
+  const filterSemester = document.getElementById("filterSemester");
+  const btnFilter = document.getElementById("btnFilter");
+  const courseBody = document.getElementById("courseBody");
+  const levelName = document.getElementById("levelName");
+  const semesterConfigCache = {};
+  const programMetaCache = {};
+
+  function setMsg(el, text, ok = false) {
+    el.textContent = text;
+    el.className = ok ? "text-xs mt-3 text-emerald-700" : "text-xs mt-3 text-rose-700";
+  }
+
+  function renderProgramRow(p) {
+    const wrap = document.createElement("div");
+    wrap.className = "px-3 py-2 flex items-center justify-between gap-2";
+    const statusClass = p.is_active ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700";
+    const statusText = p.is_active ? "Available" : "Unavailable";
+    const actionText = p.is_active ? "Mark Unavailable" : "Mark Available";
+    wrap.innerHTML = `
+      <div class="min-w-0">
+        <div class="text-sm">${p.program_name}</div>
+        <div class="text-[11px] text-slate-500 mt-1">
+          ${p.duration_years || 4} year(s), ${p.semesters_per_year || 2} semester(s)/year
+        </div>
+        <span class="inline-flex mt-1 px-2 py-0.5 rounded-full text-[11px] ${statusClass}">${statusText}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="view-program-courses rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
+                data-program="${p.program_name}">
+          View Courses
+        </button>
+        <button class="toggle-program rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
+                data-id="${p.id}"
+                data-active="${p.is_active ? '1' : '0'}">
+          ${actionText}
+        </button>
+      </div>
+    `;
+    return wrap;
+  }
+
+  async function loadPrograms() {
+    const res = await fetch("/admin/programs");
+    const data = await res.json().catch(() => ({}));
+    const programs = Array.isArray(data.programs) ? data.programs : [];
+
+    Object.keys(programMetaCache).forEach((k) => delete programMetaCache[k]);
+    programList.innerHTML = "";
+    programSelect.innerHTML = '<option value="">Select program</option>';
+    filterProgram.innerHTML = '<option value="">All programs</option>';
+
+    if (!programs.length) {
+      programList.innerHTML = '<div class="px-3 py-3 text-sm text-slate-500">No programs yet.</div>';
+      return programs;
+    }
+
+    programs.forEach((p) => {
+      programMetaCache[String(p.program_name || "").toLowerCase()] = p;
+      programList.appendChild(renderProgramRow(p));
+
+      const opt1 = document.createElement("option");
+      opt1.value = p.program_name;
+      opt1.textContent = p.is_active ? p.program_name : `${p.program_name} (Unavailable)`;
+      opt1.disabled = !p.is_active;
+      programSelect.appendChild(opt1);
+
+      const opt2 = document.createElement("option");
+      opt2.value = p.program_name;
+      opt2.textContent = p.is_active ? p.program_name : `${p.program_name} (Unavailable)`;
+      filterProgram.appendChild(opt2);
+
+    });
+    const globalLevels = [];
+    Object.values(programMetaCache).forEach((meta) => {
+      programLevels(meta.duration_years).forEach((lvl) => {
+        if (!globalLevels.includes(lvl)) globalLevels.push(lvl);
+      });
+    });
+    globalLevels.sort((a, b) => Number(a) - Number(b));
+    setLevelOptions(levelName, []);
+    setLevelOptions(filterLevel, globalLevels, true);
+    return programs;
+  }
+
+  function programLevels(durationYears) {
+    const years = Math.max(1, Math.min(10, Number(durationYears || 4)));
+    const out = [];
+    for (let i = 1; i <= years; i += 1) {
+      out.push(String(i * 100));
+    }
+    return out;
+  }
+
+  function setLevelOptions(selectEl, levels, includeAll = false) {
+    if (includeAll) {
+      selectEl.innerHTML = '<option value="">All levels</option>';
+    } else {
+      selectEl.innerHTML = '<option value="">Select level</option>';
+    }
+    levels.forEach((lvl) => {
+      const opt = document.createElement("option");
+      opt.value = lvl;
+      opt.textContent = lvl;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function setCourseSemesterOptions(maxCount) {
+    semesterNo.innerHTML = '<option value="">Select semester</option>';
+    const count = Number(maxCount || 0);
+    for (let i = 1; i <= count; i += 1) {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `Semester ${i}`;
+      semesterNo.appendChild(opt);
+    }
+  }
+
+  function refreshCourseSemesterOptionsFromSelection() {
+    const programKey = programSelect.value.trim().toLowerCase();
+    const meta = programMetaCache[programKey];
+    const maxCount = meta ? Number(meta.semesters_per_year || 0) : 0;
+    setCourseSemesterOptions(maxCount);
+  }
+
+  function setFilterSemesterOptions(maxCount) {
+    filterSemester.innerHTML = '<option value="">All semesters</option>';
+    const count = Number(maxCount || 0);
+    for (let i = 1; i <= count; i += 1) {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `Semester ${i}`;
+      filterSemester.appendChild(opt);
+    }
+  }
+
+  function setSemesterSelectOptions(selectEl, maxCount, includeAll = false) {
+    if (includeAll) {
+      selectEl.innerHTML = '<option value="">All semesters</option>';
+    } else {
+      selectEl.innerHTML = '<option value="">Select semester</option>';
+    }
+    const count = Number(maxCount || 0);
+    for (let i = 1; i <= count; i += 1) {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `Semester ${i}`;
+      selectEl.appendChild(opt);
+    }
+  }
+
+  async function loadSemesterSettings(programName = "") {
+    Object.keys(semesterConfigCache).forEach((k) => delete semesterConfigCache[k]);
+    const q = new URLSearchParams();
+    if (programName) q.set("program", programName);
+    const res = await fetch(`/admin/program-level-semesters?${q.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    const list = Array.isArray(data.semesters) ? data.semesters : [];
+    list.forEach((row) => {
+      const key = `${String(row.program_name || "").toLowerCase()}::${String(row.level_name || "").toLowerCase()}`;
+      semesterConfigCache[key] = Number(row.semester_count || 0);
+    });
+    const selectedProgram = programSelect.value.trim().toLowerCase();
+    const selectedLevel = levelName.value.trim().toLowerCase();
+    const key = `${selectedProgram}::${selectedLevel}`;
+    setCourseSemesterOptions(semesterConfigCache[key] || 0);
+    const configuredCounts = Object.values(semesterConfigCache);
+    const defaultCounts = Object.values(programMetaCache).map((p) => Number(p.semesters_per_year || 0));
+    const allCounts = [...configuredCounts, ...defaultCounts].filter((n) => Number.isFinite(n) && n > 0);
+    const maxCount = allCounts.length ? Math.max(...allCounts) : 0;
+    setFilterSemesterOptions(maxCount);
+  }
+
+  function buildCourseRow(course) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="py-3 px-3">${course.program_name || ""}</td>
+      <td class="py-3 px-3">${course.level_name || ""}</td>
+      <td class="py-3 px-3">${course.semester_no || "-"}</td>
+      <td class="py-3 px-3">${course.course_code || ""}</td>
+      <td class="py-3 px-3">${course.course_title || ""}</td>
+      <td class="py-3 px-3">${course.credit_units ?? "-"}</td>
+      <td class="py-3 px-3">
+        <button class="edit-course rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
+                data-id="${course.id}"
+                data-program="${course.program_name || ""}"
+                data-level="${course.level_name || ""}"
+                data-semester="${course.semester_no || ""}"
+                data-code="${course.course_code || ""}"
+                data-title="${course.course_title || ""}"
+                data-units="${course.credit_units ?? ""}">
+          Edit
+        </button>
+        <button class="remove-course rounded-lg border border-rose-200 text-rose-700 px-2 py-1 text-xs hover:bg-rose-50"
+                data-id="${course.id}">
+          Remove
+        </button>
+      </td>
+    `;
+    return tr;
+  }
+
+  async function loadCourses() {
+    courseBody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-slate-500">Loading...</td></tr>`;
+    const q = new URLSearchParams();
+    if (filterProgram.value.trim()) q.set("program", filterProgram.value.trim());
+    if (filterLevel.value.trim()) q.set("level", filterLevel.value.trim());
+    if (filterSemester.value.trim()) q.set("semester", filterSemester.value.trim());
+    const res = await fetch(`/admin/courses?${q.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    const list = Array.isArray(data.courses) ? data.courses : [];
+    if (!list.length) {
+      courseBody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-slate-500">No courses found.</td></tr>`;
+      return;
+    }
+    courseBody.innerHTML = "";
+    let previousProgram = null;
+    let previousLevel = null;
+    list.forEach((c) => {
+      const currentProgram = String(c.program_name || "");
+      const currentLevel = String(c.level_name || "");
+      if (currentProgram !== previousProgram) {
+        const trProgram = document.createElement("tr");
+        trProgram.innerHTML = `<td colspan="7" class="py-2 px-3 bg-slate-100 text-slate-700 font-semibold">${currentProgram}</td>`;
+        courseBody.appendChild(trProgram);
+        previousProgram = currentProgram;
+        previousLevel = null;
+      }
+      if (currentLevel !== previousLevel) {
+        const trLevel = document.createElement("tr");
+        trLevel.innerHTML = `<td colspan="7" class="py-2 px-3 bg-slate-50 text-slate-600">Level ${currentLevel}</td>`;
+        courseBody.appendChild(trLevel);
+        previousLevel = currentLevel;
+      }
+      courseBody.appendChild(buildCourseRow(c));
+    });
+  }
+
+  programForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      program_name: document.getElementById("programNameInput").value.trim(),
+      duration_years: document.getElementById("durationYearsInput").value.trim(),
+      semesters_per_year: document.getElementById("semestersPerYearInput").value.trim()
+    };
+    try {
+      const res = await fetch("/admin/programs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save program");
+      setMsg(programMsg, data.message || "Saved", true);
+      programForm.reset();
+      document.getElementById("durationYearsInput").value = "4";
+      document.getElementById("semestersPerYearInput").value = "2";
+      await loadPrograms();
+      await loadCourses();
+    } catch (err) {
+      setMsg(programMsg, err.message || "Failed to save program");
+    }
+  });
+
+  courseForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      program_name: programSelect.value.trim(),
+      level_name: document.getElementById("levelName").value.trim(),
+      semester_no: document.getElementById("semesterNo").value.trim(),
+      course_code: document.getElementById("courseCode").value.trim(),
+      course_title: document.getElementById("courseTitle").value.trim(),
+      credit_units: document.getElementById("creditUnits").value.trim()
+    };
+    try {
+      const selectedOpt = programSelect.options[programSelect.selectedIndex];
+      if (!selectedOpt || selectedOpt.disabled) {
+        throw new Error("Selected program is unavailable. Mark it available first.");
+      }
+      const res = await fetch("/admin/courses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save course");
+      setMsg(courseMsg, data.message || "Saved", true);
+      courseForm.reset();
+      await loadCourses();
+    } catch (err) {
+      setMsg(courseMsg, err.message || "Failed to save course");
+    }
+  });
+
+  programSelect.addEventListener("change", async () => {
+    const program = programSelect.value.trim().toLowerCase();
+    const meta = programMetaCache[program];
+    setLevelOptions(levelName, meta ? programLevels(meta.duration_years) : []);
+    refreshCourseSemesterOptionsFromSelection();
+    await loadSemesterSettings(programSelect.value.trim());
+  });
+  levelName.addEventListener("change", () => {
+    refreshCourseSemesterOptionsFromSelection();
+  });
+  filterProgram.addEventListener("change", async () => {
+    const program = filterProgram.value.trim().toLowerCase();
+    const meta = programMetaCache[program];
+    setLevelOptions(filterLevel, meta ? programLevels(meta.duration_years) : [], true);
+    await loadSemesterSettings(filterProgram.value.trim());
+  });
+
+  btnFilter.addEventListener("click", loadCourses);
+
+  programList.addEventListener("click", async (e) => {
+    const viewBtn = e.target.closest(".view-program-courses");
+    if (viewBtn) {
+      filterProgram.value = viewBtn.dataset.program || "";
+      const selectedProgram = filterProgram.value.trim().toLowerCase();
+      const meta = programMetaCache[selectedProgram];
+      setLevelOptions(filterLevel, meta ? programLevels(meta.duration_years) : [], true);
+      await loadSemesterSettings(filterProgram.value.trim());
+      await loadCourses();
+      return;
+    }
+
+    const btn = e.target.closest(".toggle-program");
+    if (!btn) return;
+    const isCurrentlyActive = btn.dataset.active === "1";
+    const targetActive = !isCurrentlyActive;
+    const confirmation = targetActive
+      ? "Mark this program as available again?"
+      : "Mark this program as unavailable?";
+    if (!window.confirm(confirmation)) return;
+
+    const res = await fetch(`/admin/programs/${encodeURIComponent(btn.dataset.id)}/availability`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: targetActive })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMsg(programMsg, data.error || "Failed to update program availability");
+      return;
+    }
+      setMsg(programMsg, data.message || "Program availability updated", true);
+    await loadPrograms();
+    await loadCourses();
+  });
+
+  courseBody.addEventListener("click", async (e) => {
+    const editBtn = e.target.closest(".edit-course");
+    if (editBtn) {
+      const rowId = Number(editBtn.dataset.id || 0);
+      if (!rowId) return;
+      const programName = String(editBtn.dataset.program || "").trim();
+      const currentCode = String(editBtn.dataset.code || "").trim();
+      const currentTitle = String(editBtn.dataset.title || "").trim();
+      const currentLevel = String(editBtn.dataset.level || "").trim();
+      const currentSemester = String(editBtn.dataset.semester || "").trim();
+      const currentUnits = String(editBtn.dataset.units || "").trim();
+
+      const newCode = window.prompt("Course code", currentCode);
+      if (newCode === null) return;
+      const newTitle = window.prompt("Course title", currentTitle);
+      if (newTitle === null) return;
+      const newLevel = window.prompt("Assign level (e.g. 100, 200, 300)", currentLevel);
+      if (newLevel === null) return;
+      const newSemester = window.prompt("Semester number", currentSemester);
+      if (newSemester === null) return;
+      const newUnits = window.prompt("Credit units (leave blank for none)", currentUnits);
+      if (newUnits === null) return;
+
+      const payload = {
+        program_name: programName,
+        course_code: String(newCode || "").trim(),
+        course_title: String(newTitle || "").trim(),
+        level_name: String(newLevel || "").trim(),
+        semester_no: String(newSemester || "").trim(),
+        credit_units: String(newUnits || "").trim()
+      };
+      if (!payload.course_code || !payload.course_title || !payload.level_name || !payload.semester_no) {
+        setMsg(courseMsg, "Code, title, level, and semester are required.");
+        return;
+      }
+
+      const res = await fetch(`/admin/courses/${encodeURIComponent(rowId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(courseMsg, data.error || "Failed to update course");
+        return;
+      }
+      setMsg(courseMsg, data.message || "Course updated", true);
+      await loadCourses();
+      return;
+    }
+
+    const btn = e.target.closest(".remove-course");
+    if (!btn) return;
+    if (!window.confirm("Remove this course from active list?")) return;
+    const res = await fetch(`/admin/courses/${encodeURIComponent(btn.dataset.id)}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMsg(courseMsg, data.error || "Failed to remove course");
+      return;
+    }
+    setMsg(courseMsg, data.message || "Removed", true);
+    await loadCourses();
+  });
+
+  (async () => {
+    await loadPrograms();
+    await loadSemesterSettings();
+    refreshCourseSemesterOptionsFromSelection();
+    await loadCourses();
+  })();
+</script>
+
+{% endblock %}

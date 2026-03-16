@@ -1,0 +1,217 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<!-- Stats -->
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="text-2xl font-extrabold">{{ stats.students }}</div>
+        <div class="text-sm text-slate-600 mt-1">Total Students</div>
+      </div>
+      <div class="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600">
+        👤
+      </div>
+    </div>
+    <div class="mt-4 text-xs text-slate-500">All registered students in the system.</div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="text-2xl font-extrabold">{{ stats.sessions }}</div>
+        <div class="text-sm text-slate-600 mt-1">Sessions Today</div>
+      </div>
+      <div class="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600">
+        🗓️
+      </div>
+    </div>
+    <div class="mt-4 text-xs text-slate-500">Exam sessions scheduled for today.</div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="text-2xl font-extrabold">{{ stats.verified }}</div>
+        <div class="text-sm text-slate-600 mt-1">Verified Today</div>
+      </div>
+      <div class="h-10 w-10 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700">
+        ✓
+      </div>
+    </div>
+    <div class="mt-4 text-xs text-slate-500">Successful verifications recorded today.</div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="text-2xl font-extrabold">{{ stats.failed }}</div>
+        <div class="text-sm text-slate-600 mt-1">Failed Today</div>
+      </div>
+      <div class="h-10 w-10 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-700">
+        !
+      </div>
+    </div>
+    <div class="mt-4 text-xs text-slate-500">Failed verifications recorded today.</div>
+  </div>
+</div>
+
+<!-- Main grid -->
+<div class="grid lg:grid-cols-3 gap-4 mt-6">
+  <!-- Recent Activity -->
+  <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div>
+        <div class="text-sm font-semibold">Recent Activity</div>
+        <div class="text-xs text-slate-500 mt-1">Latest verification attempts in the system.</div>
+      </div>
+
+      <div class="flex items-center gap-2 w-full sm:w-auto">
+        <button onclick="window.location.reload()"
+                class="w-full sm:w-auto text-sm px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50">
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile cards -->
+    <div class="mt-4 space-y-3 md:hidden">
+      {% for a in recent_activities[:8] %}
+      <div class="rounded-2xl border border-slate-200 p-4">
+        <div class="flex items-center justify-between">
+          <div class="text-sm font-semibold">{{ a.name }}</div>
+          {% if a.status == "Verified" %}
+          <span class="px-2 py-1 rounded-full text-xs bg-emerald-50 text-emerald-700">Verified</span>
+          {% else %}
+          <span class="px-2 py-1 rounded-full text-xs bg-rose-50 text-rose-700">Failed</span>
+          {% endif %}
+        </div>
+        <div class="mt-2 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+          <span><span class="text-slate-400">Time:</span> {{ a.time }}</span>
+          <span><span class="text-slate-400">Index:</span> {{ a.index }}</span>
+          <span><span class="text-slate-400">Course:</span> {{ a.course }}</span>
+        </div>
+      </div>
+      {% endfor %}
+      {% if not recent_activities %}
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        No recent activity yet.
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Desktop table -->
+    <div class="mt-4 overflow-x-auto hidden md:block">
+      <table class="w-full text-sm">
+        <thead class="text-slate-500 border-b">
+          <tr>
+            <th class="text-left py-3 pr-3">Time</th>
+            <th class="text-left py-3 pr-3">Student</th>
+            <th class="text-left py-3 pr-3">Index No.</th>
+            <th class="text-left py-3 pr-3">Course</th>
+            <th class="text-left py-3">Status</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y">
+          {% for a in recent_activities %}
+          <tr class="hover:bg-slate-50">
+            <td class="py-3 pr-3 whitespace-nowrap">{{ a.time }}</td>
+            <td class="py-3 pr-3">{{ a.name }}</td>
+            <td class="py-3 pr-3 whitespace-nowrap">{{ a.index }}</td>
+            <td class="py-3 pr-3 whitespace-nowrap">{{ a.course }}</td>
+            <td class="py-3">
+              {% if a.status == "Verified" %}
+              <span class="px-2 py-1 rounded-full text-xs bg-emerald-50 text-emerald-700">Verified</span>
+              {% else %}
+              <span class="px-2 py-1 rounded-full text-xs bg-rose-50 text-rose-700">Failed</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not recent_activities %}
+          <tr>
+            <td colspan="5" class="py-6 text-center text-slate-500">No recent activity yet.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Footer hint -->
+    <div class="mt-4 text-xs text-slate-500">
+      You can view full history and session breakdown in <span class="font-semibold">Attendance Logs</span>.
+    </div>
+  </div>
+
+  <!-- Quick Actions -->
+  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm lg:sticky lg:top-6 h-fit">
+    <div class="text-sm font-semibold">Quick Actions</div>
+    <div class="text-xs text-slate-500 mt-1">Common tasks for invigilators.</div>
+
+    <div class="mt-4 space-y-2">
+      <a href="{{ url_for('web.exam_session_page') }}"
+         class="block text-center rounded-xl bg-brand-600 text-white py-3 font-semibold hover:bg-brand-700 transition">
+        Start Live Verification
+      </a>
+
+      <a href="{{ url_for('web.register_student_page') }}"
+         class="block text-center rounded-xl border border-slate-200 py-3 font-semibold hover:bg-slate-50 transition">
+        Register Student
+      </a>
+
+      <a href="{{ url_for('web.attendance_logs_page') }}"
+         class="block text-center rounded-xl border border-slate-200 py-3 font-semibold hover:bg-slate-50 transition">
+        View Attendance Logs
+      </a>
+    </div>
+
+    <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div class="text-xs text-slate-500">Pro Tip</div>
+      <div class="text-sm font-semibold mt-1">Use Manual Search when needed</div>
+      <div class="text-xs text-slate-600 mt-1">
+        If face verification fails but the student is registered, confirm eligibility manually and log it.
+      </div>
+    </div>
+
+    <div class="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+      <div class="text-xs text-slate-500">Database Status</div>
+      <div class="mt-2 flex items-center gap-2">
+        <span id="dbStatusDot" class="h-2 w-2 rounded-full bg-slate-300"></span>
+        <span id="dbStatusText" class="text-sm font-semibold text-slate-700">Checking...</span>
+      </div>
+      <div id="dbStatusHint" class="text-xs text-slate-500 mt-2">Health check pending.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const dot = document.getElementById("dbStatusDot");
+    const text = document.getElementById("dbStatusText");
+    const hint = document.getElementById("dbStatusHint");
+
+    function setStatus(state, message) {
+      dot.className = "h-2 w-2 rounded-full";
+      if (state === "ok") dot.classList.add("bg-emerald-500");
+      else if (state === "bad") dot.classList.add("bg-rose-500");
+      else dot.classList.add("bg-slate-300");
+      text.textContent = message;
+      hint.textContent = state === "ok"
+        ? "Database reachable."
+        : state === "bad"
+          ? "Database unreachable. Check network or credentials."
+          : "Health check pending.";
+    }
+
+    fetch("/health/db", { method: "GET" })
+      .then((res) => {
+        if (!res.ok) throw new Error("db_unreachable");
+        return res.json();
+      })
+      .then(() => setStatus("ok", "Connected"))
+      .catch(() => setStatus("bad", "Offline"));
+  })();
+</script>
+
+{% endblock %}
+

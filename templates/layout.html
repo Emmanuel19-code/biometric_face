@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title if title else "UPSA Exam Verification" }}</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: "#eef4ff", 600: "#0b2f6a", 700: "#082855" }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+
+  {% macro nav_link(endpoint, label, icon) %}
+    {% set fallback_map = {
+      'web.dashboard_page': '/dashboard',
+      'web.register_student_page': '/students/register',
+      'web.students_directory_page': '/students',
+      'web.exam_session_page': '/exams/session',
+      'web.verification_test_page': '/verify/test',
+      'web.all_sessions_page': '/exams/sessions',
+      'web.attendance_logs_page': '/attendance/logs',
+      'web.class_attendance_page': '/class/attendance',
+      'web.class_attendance_logs_page': '/class/attendance/logs',
+      'web.session_setup_page': '/admin/session-setup',
+      'web.halls_setup_page': '/admin/halls/setup',
+      'web.course_catalog_page': '/admin/courses/setup',
+      'web.academic_years_page': '/admin/academic-years/manage',
+      'web.semester_control_page': '/admin/semester-control',
+      'web.lecturer_course_assignments_page': '/admin/lecturer-courses/manage',
+      'web.add_lecturer_page': '/admin/lecturers/new',
+      'web.add_invigilator_page': '/admin/lecturers/new',
+      'web.logout_page': '/logout',
+      'web.login_page': '/login'
+    } %}
+    {% set resolved = (safe_url_for(endpoint) if safe_url_for is defined else none) %}
+    {% set href = resolved if resolved else fallback_map.get(endpoint, '#') %}
+    {% set is_active = (request.path == href) %}
+    <a href="{{ href }}"
+       class="flex items-center gap-3 px-3 py-2 rounded-xl transition
+              {% if is_active %}
+                bg-brand-50 text-brand-700
+              {% else %}
+                hover:bg-brand-50 hover:text-brand-700
+              {% endif %}">
+      <span class="text-slate-500">{{ icon }}</span>
+      <span class="text-sm font-medium">{{ label }}</span>
+    </a>
+  {% endmacro %}
+
+  {% set is_logged_in = (session.get('role') is not none) %}
+  {% set role = (session.get('role') or '') %}
+  {% set user_email = (session.get('user_email') or 'demo@upsa.edu.gh') %}
+
+  <div class="min-h-screen flex">
+
+    {% if is_logged_in %}
+      <div id="sidebarOverlay" class="fixed inset-0 bg-black/40 z-40 hidden lg:hidden"></div>
+
+      <aside id="sidebar"
+             class="fixed lg:static inset-y-0 left-0 z-50
+                    w-72 bg-white border-r border-slate-200
+                    transform -translate-x-full lg:translate-x-0
+                    transition-transform duration-200 ease-in-out">
+
+        <div class="px-5 py-5 flex items-start justify-between gap-3">
+          <div>
+            <div class="text-brand-600 font-extrabold tracking-wide text-lg">UPSA</div>
+            <div class="text-xs text-slate-500 mt-1">Attendance and Verification</div>
+
+            <div class="mt-3 text-xs text-slate-600">
+              <div class="truncate">{{ user_email }}</div>
+              <div class="mt-1 inline-flex items-center px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+                {{ role|capitalize }}
+              </div>
+            </div>
+          </div>
+
+          <button id="btnCloseSidebar"
+                  class="lg:hidden rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+            X
+          </button>
+        </div>
+
+        <nav class="px-3 pb-6">
+          <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-2 mb-2">Main</div>
+          {{ nav_link('web.dashboard_page', 'Dashboard', '*') }}
+
+          {% if role in ['admin', 'super_admin'] %}
+            <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-5 mb-2">Students</div>
+            {{ nav_link('web.register_student_page', 'Register Student', '+') }}
+            {{ nav_link('web.students_directory_page', 'Students Directory', '=') }}
+          {% endif %}
+
+          {% if role in ['invigilator', 'lecturer', 'admin', 'super_admin'] %}
+            <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-5 mb-2">Examinations</div>
+            {{ nav_link('web.exam_session_page', 'Exam Verification', 'E') }}
+            {{ nav_link('web.verification_test_page', 'Verification Test', 'T') }}
+            {{ nav_link('web.all_sessions_page', 'All Sessions', '#') }}
+            {{ nav_link('web.attendance_logs_page', 'Exam Attendance Logs', ':') }}
+          {% endif %}
+
+          {% if role in ['lecturer', 'admin', 'super_admin'] %}
+            <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-5 mb-2">Class Attendance</div>
+            {{ nav_link('web.class_attendance_page', 'Mark Attendance', 'C') }}
+            {{ nav_link('web.class_attendance_logs_page', 'Class Logs', 'L') }}
+          {% endif %}
+
+          {% if role in ['admin', 'super_admin'] %}
+            <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-5 mb-2">Admin</div>
+            {{ nav_link('web.session_setup_page', 'Session Setup', 'S') }}
+            {{ nav_link('web.halls_setup_page', 'Exam Halls', 'H') }}
+            {{ nav_link('web.course_catalog_page', 'Program Courses', 'P') }}
+            {{ nav_link('web.academic_years_page', 'Academic Years', 'Y') }}
+            {{ nav_link('web.semester_control_page', 'Semester Control', 'M') }}
+            {{ nav_link('web.lecturer_course_assignments_page', 'Lecturer Courses', 'R') }}
+            {{ nav_link('web.add_lecturer_page', 'Add Lecturer', 'A') }}
+          {% endif %}
+
+          <div class="mt-6 px-3">
+            <div class="h-px bg-slate-200"></div>
+            <a href="{{ (safe_url_for('web.logout_page') if safe_url_for is defined else '/logout') or '#' }}"
+               class="mt-3 inline-flex items-center gap-2 text-sm text-rose-600 hover:text-rose-700">
+              <span><-</span> Logout
+            </a>
+          </div>
+        </nav>
+      </aside>
+    {% endif %}
+
+    <main class="flex-1 min-w-0">
+      {% if is_logged_in %}
+        <header class="lg:hidden bg-white border-b border-slate-200 sticky top-0 z-30">
+          <div class="px-4 py-3 flex items-center justify-between">
+            <button id="btnOpenSidebar"
+                    class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+              Menu
+            </button>
+
+            <div class="text-center">
+              <div class="text-sm font-semibold">{{ title if title else "Dashboard" }}</div>
+              <div class="text-[11px] text-slate-500">UPSA Attendance</div>
+            </div>
+
+            <div class="px-3 py-2 rounded-full border border-slate-200 bg-slate-50 text-sm">
+              {{ role|capitalize }}
+            </div>
+          </div>
+        </header>
+
+        <header class="hidden lg:block bg-white border-b border-slate-200">
+          <div class="px-6 py-4 flex items-center justify-between">
+            <div>
+              <div class="text-sm font-semibold">{{ title if title else "Dashboard" }}</div>
+              <div class="text-xs text-slate-500">University of Professional Studies, Accra</div>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <div class="hidden md:block text-xs text-slate-500">Secure Verification and Attendance</div>
+
+              <div class="hidden sm:flex items-center gap-2 px-3 py-2 rounded-full border border-slate-200 bg-slate-50 text-sm">
+                <span class="text-slate-600">{{ role|capitalize }}</span>
+                <span class="text-slate-500 truncate max-w-[200px]">{{ user_email }}</span>
+              </div>
+
+              <a href="{{ (safe_url_for('web.logout_page') if safe_url_for is defined else '/logout') or '#' }}"
+                 class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+                Logout
+              </a>
+            </div>
+          </div>
+        </header>
+      {% endif %}
+
+      <div class="{% if is_logged_in %}p-4 sm:p-6{% else %}min-h-screen flex items-center justify-center p-4{% endif %}">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+
+  {% if is_logged_in %}
+  <script>
+    const sidebar = document.getElementById("sidebar");
+    const overlay = document.getElementById("sidebarOverlay");
+    const btnOpen = document.getElementById("btnOpenSidebar");
+    const btnClose = document.getElementById("btnCloseSidebar");
+
+    function openSidebar() {
+      sidebar?.classList.remove("-translate-x-full");
+      overlay?.classList.remove("hidden");
+      document.body.classList.add("overflow-hidden");
+    }
+
+    function closeSidebar() {
+      sidebar?.classList.add("-translate-x-full");
+      overlay?.classList.add("hidden");
+      document.body.classList.remove("overflow-hidden");
+    }
+
+    btnOpen?.addEventListener("click", openSidebar);
+    btnClose?.addEventListener("click", closeSidebar);
+    overlay?.addEventListener("click", closeSidebar);
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeSidebar();
+    });
+
+    window.addEventListener("resize", () => {
+      if (window.innerWidth >= 1024) {
+        overlay?.classList.add("hidden");
+        sidebar?.classList.remove("-translate-x-full");
+        document.body.classList.remove("overflow-hidden");
+      } else {
+        if (!overlay?.classList.contains("hidden")) return;
+        sidebar?.classList.add("-translate-x-full");
+      }
+    });
+  </script>
+  {% endif %}
+
+</body>
+</html>

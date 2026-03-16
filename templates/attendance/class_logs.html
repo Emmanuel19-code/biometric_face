@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+{% set title = "Class Attendance Logs" %}
+{% block content %}
+
+<div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+    <div>
+      <div class="text-sm font-semibold">Class Attendance Logs</div>
+      <p class="text-xs text-slate-500 mt-1">Lecturers can only view attendance for assigned courses.</p>
+    </div>
+    <form method="GET" action="{{ url_for('web.class_attendance_logs_page') }}" class="flex items-center gap-2">
+      <select name="course_code" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="">All courses</option>
+        {% for c in courses %}
+        <option value="{{ c.course_code }}" {% if selected_course == c.course_code %}selected{% endif %}>
+          {{ c.course_code }}{% if c.course_title %} - {{ c.course_title }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <button class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">Filter</button>
+    </form>
+  </div>
+
+  <div class="mt-4 overflow-auto rounded-xl border border-slate-200">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-slate-500">
+        <tr>
+          <th class="text-left py-3 px-3">Date</th>
+          <th class="text-left py-3 px-3">Time</th>
+          <th class="text-left py-3 px-3">Course</th>
+          <th class="text-left py-3 px-3">Student</th>
+          <th class="text-left py-3 px-3">Index</th>
+          <th class="text-left py-3 px-3">Lecturer</th>
+          <th class="text-left py-3 px-3">Confidence</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y">
+        {% for r in rows %}
+        <tr>
+          <td class="py-3 px-3">{{ r.attendance_date.strftime('%Y-%m-%d') if r.attendance_date else "N/A" }}</td>
+          <td class="py-3 px-3">{{ r.timestamp.strftime('%H:%M:%S') if r.timestamp else "N/A" }}</td>
+          <td class="py-3 px-3">{{ r.course_code }}</td>
+          <td class="py-3 px-3">{{ (r.first_name or "") ~ " " ~ (r.last_name or "") }}</td>
+          <td class="py-3 px-3">{{ r.student_id }}</td>
+          <td class="py-3 px-3">{{ r.lecturer_name or "N/A" }}</td>
+          <td class="py-3 px-3">{{ "%.2f"|format(r.verification_confidence or 0) }}</td>
+        </tr>
+        {% endfor %}
+        {% if rows|length == 0 %}
+        <tr>
+          <td colspan="7" class="py-6 text-center text-slate-500">No class attendance records found.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

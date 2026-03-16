@@ -1,0 +1,369 @@
+{% extends "layout.html" %}
+{% set title = "Academic Years" %}
+{% block content %}
+
+<div class="max-w-4xl mx-auto grid lg:grid-cols-2 gap-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Add Academic Year</div>
+    <p class="text-xs text-slate-500 mt-1">Create an academic year and set enrollment status.</p>
+    <form id="academicYearForm" class="mt-4 space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Year Label</label>
+        <input id="academicYearLabel" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+               placeholder="e.g. 2026/2027" required>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-slate-500">Start Month</label>
+          <input id="academicYearStartMonth" type="number" min="1" max="12"
+                 class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value="9" required>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Start Day</label>
+          <input id="academicYearStartDay" type="number" min="1" max="31"
+                 class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value="1" required>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-slate-500">End Month</label>
+          <input id="academicYearEndMonth" type="number" min="1" max="12"
+                 class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value="8" required>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">End Day</label>
+          <input id="academicYearEndDay" type="number" min="1" max="31"
+                 class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value="31" required>
+        </div>
+      </div>
+      <label class="flex items-center gap-2 text-xs text-slate-600">
+        <input id="academicYearCurrent" type="checkbox" class="rounded border-slate-300">
+        Set as current year
+      </label>
+      <label class="flex items-center gap-2 text-xs text-slate-600">
+        <input id="academicYearEnrollmentOpen" type="checkbox" class="rounded border-slate-300" checked>
+        Enrollment open
+      </label>
+      <button class="w-full rounded-xl bg-slate-900 text-white px-4 py-3 text-sm font-semibold hover:bg-slate-800">
+        Save Academic Year
+      </button>
+    </form>
+    <p id="academicYearMsg" class="text-xs mt-3 text-slate-500"></p>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Academic Year List</div>
+    <p class="text-xs text-slate-500 mt-1">Set current year and open/close enrollment.</p>
+    <div id="academicYearList" class="mt-3 rounded-xl border border-slate-200 max-h-[32rem] overflow-auto divide-y">
+      <div class="px-3 py-3 text-sm text-slate-500">Loading...</div>
+    </div>
+
+    <div class="mt-4 rounded-xl border border-slate-200 p-3">
+      <div class="text-xs text-slate-500">Closed-Year Exceptions (Program Whitelist)</div>
+      <div id="exceptionYearLabel" class="mt-1 text-sm text-slate-700">Select a year to manage exceptions.</div>
+      <div class="mt-2 flex flex-col sm:flex-row gap-2">
+        <select id="exceptionProgramSelect" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+          <option value="">Select program</option>
+        </select>
+        <button id="btnAddException" class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50">
+          Add Exception
+        </button>
+      </div>
+      <div id="exceptionMsg" class="mt-2 text-xs text-slate-500"></div>
+      <div id="exceptionList" class="mt-2 rounded-xl border border-slate-200 divide-y max-h-44 overflow-auto">
+        <div class="px-3 py-3 text-xs text-slate-500">No year selected.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const academicYearForm = document.getElementById("academicYearForm");
+  const academicYearLabel = document.getElementById("academicYearLabel");
+  const academicYearCurrent = document.getElementById("academicYearCurrent");
+  const academicYearEnrollmentOpen = document.getElementById("academicYearEnrollmentOpen");
+  const academicYearStartMonth = document.getElementById("academicYearStartMonth");
+  const academicYearStartDay = document.getElementById("academicYearStartDay");
+  const academicYearEndMonth = document.getElementById("academicYearEndMonth");
+  const academicYearEndDay = document.getElementById("academicYearEndDay");
+  const academicYearMsg = document.getElementById("academicYearMsg");
+  const academicYearList = document.getElementById("academicYearList");
+  const exceptionYearLabel = document.getElementById("exceptionYearLabel");
+  const exceptionProgramSelect = document.getElementById("exceptionProgramSelect");
+  const btnAddException = document.getElementById("btnAddException");
+  const exceptionMsg = document.getElementById("exceptionMsg");
+  const exceptionList = document.getElementById("exceptionList");
+  let selectedExceptionYearId = null;
+  let selectedExceptionYearLabel = "";
+
+  function setMsg(el, text, ok = false) {
+    el.textContent = text;
+    el.className = ok ? "text-xs mt-3 text-emerald-700" : "text-xs mt-3 text-rose-700";
+  }
+
+  function renderAcademicYearRow(row) {
+    const wrap = document.createElement("div");
+    wrap.className = "px-3 py-2 flex items-center justify-between gap-2";
+    const currentBadge = row.is_current
+      ? '<span class="inline-flex px-2 py-0.5 rounded-full text-[11px] bg-emerald-50 text-emerald-700">Current</span>'
+      : '<span class="inline-flex px-2 py-0.5 rounded-full text-[11px] bg-slate-100 text-slate-600">Not Current</span>';
+    const enrollmentBadge = row.enrollment_open
+      ? '<span class="inline-flex px-2 py-0.5 rounded-full text-[11px] bg-emerald-50 text-emerald-700">Enrollment Open</span>'
+      : '<span class="inline-flex px-2 py-0.5 rounded-full text-[11px] bg-rose-50 text-rose-700">Enrollment Closed</span>';
+    wrap.innerHTML = `
+      <div class="min-w-0">
+        <div class="text-sm">${row.year_label || ""}</div>
+        <div class="mt-1 text-[11px] text-slate-500">Start: ${row.start_month || "-"}-${row.start_day || "-"} | End: ${row.end_month || "-"}-${row.end_day || "-"}</div>
+        <div class="mt-1 flex flex-wrap gap-1">${currentBadge} ${enrollmentBadge}</div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button class="set-current-year rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
+                data-id="${row.id}">
+          Make Current
+        </button>
+        <button class="toggle-enrollment-year rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
+                data-id="${row.id}"
+                data-open="${row.enrollment_open ? '1' : '0'}">
+          ${row.enrollment_open ? "Close Enrollment" : "Open Enrollment"}
+        </button>
+        <button class="manage-exceptions-year rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
+                data-id="${row.id}"
+                data-label="${row.year_label || ""}">
+          Exceptions
+        </button>
+        <button class="end-year rounded-lg border border-rose-200 text-rose-700 px-2 py-1 text-xs hover:bg-rose-50"
+                data-id="${row.id}"
+                data-label="${row.year_label || ""}"
+                ${row.is_current ? "" : "disabled"}>
+          End Year
+        </button>
+      </div>
+    `;
+    return wrap;
+  }
+
+  function setExceptionMsg(text, ok = false) {
+    exceptionMsg.className = ok ? "mt-2 text-xs text-emerald-700" : "mt-2 text-xs text-rose-700";
+    exceptionMsg.textContent = text;
+  }
+
+  async function loadProgramOptions() {
+    const res = await fetch("/admin/programs");
+    const data = await res.json().catch(() => ({}));
+    const programs = Array.isArray(data.programs) ? data.programs : [];
+    exceptionProgramSelect.innerHTML = '<option value="">Select program</option>';
+    programs.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p.program_name || "";
+      opt.textContent = p.is_active ? (p.program_name || "") : `${p.program_name || ""} (Unavailable)`;
+      exceptionProgramSelect.appendChild(opt);
+    });
+  }
+
+  async function loadExceptions() {
+    if (!selectedExceptionYearId) {
+      exceptionList.innerHTML = '<div class="px-3 py-3 text-xs text-slate-500">No year selected.</div>';
+      return;
+    }
+    exceptionYearLabel.textContent = `Managing exceptions for ${selectedExceptionYearLabel}`;
+    const res = await fetch(`/admin/academic-years/${encodeURIComponent(selectedExceptionYearId)}/exceptions`);
+    const data = await res.json().catch(() => ({}));
+    const rows = Array.isArray(data.exceptions) ? data.exceptions : [];
+    if (!rows.length) {
+      exceptionList.innerHTML = '<div class="px-3 py-3 text-xs text-slate-500">No exceptions set.</div>';
+      return;
+    }
+    exceptionList.innerHTML = "";
+    rows.forEach((r) => {
+      const item = document.createElement("div");
+      item.className = "px-3 py-2 flex items-center justify-between gap-2";
+      item.innerHTML = `
+        <div class="text-xs text-slate-700">${r.program_name || ""}</div>
+        <button class="remove-exception rounded-lg border border-rose-200 text-rose-700 px-2 py-1 text-xs hover:bg-rose-50"
+                data-id="${r.id}">
+          Remove
+        </button>
+      `;
+      exceptionList.appendChild(item);
+    });
+  }
+
+  async function loadAcademicYears() {
+    const res = await fetch("/admin/academic-years");
+    const data = await res.json().catch(() => ({}));
+    const years = Array.isArray(data.academic_years) ? data.academic_years : [];
+    academicYearList.innerHTML = "";
+    if (!years.length) {
+      academicYearList.innerHTML = '<div class="px-3 py-3 text-sm text-slate-500">No academic years yet.</div>';
+      return;
+    }
+    years.forEach((y) => academicYearList.appendChild(renderAcademicYearRow(y)));
+  }
+
+  academicYearForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      year_label: academicYearLabel.value.trim(),
+      is_current: !!academicYearCurrent.checked,
+      enrollment_open: !!academicYearEnrollmentOpen.checked,
+      start_month: Number(academicYearStartMonth.value || 0),
+      start_day: Number(academicYearStartDay.value || 0),
+      end_month: Number(academicYearEndMonth.value || 0),
+      end_day: Number(academicYearEndDay.value || 0)
+    };
+    try {
+      const res = await fetch("/admin/academic-years", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save academic year");
+      setMsg(academicYearMsg, data.message || "Saved", true);
+      academicYearForm.reset();
+      academicYearEnrollmentOpen.checked = true;
+      academicYearStartMonth.value = "9";
+      academicYearStartDay.value = "1";
+      academicYearEndMonth.value = "8";
+      academicYearEndDay.value = "31";
+      await loadAcademicYears();
+    } catch (err) {
+      setMsg(academicYearMsg, err.message || "Failed to save academic year");
+    }
+  });
+
+  academicYearList.addEventListener("click", async (e) => {
+    const currentBtn = e.target.closest(".set-current-year");
+    if (currentBtn) {
+      const res = await fetch(`/admin/academic-years/${encodeURIComponent(currentBtn.dataset.id)}/current`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(academicYearMsg, data.error || "Failed to set current year");
+        return;
+      }
+      setMsg(academicYearMsg, data.message || "Current year updated", true);
+      await loadAcademicYears();
+      return;
+    }
+
+    const toggleBtn = e.target.closest(".toggle-enrollment-year");
+    if (toggleBtn) {
+      const nextOpen = !(toggleBtn.dataset.open === "1");
+      const res = await fetch(`/admin/academic-years/${encodeURIComponent(toggleBtn.dataset.id)}/enrollment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enrollment_open: nextOpen })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(academicYearMsg, data.error || "Failed to update enrollment status");
+        return;
+      }
+      setMsg(academicYearMsg, data.message || "Enrollment status updated", true);
+      await loadAcademicYears();
+      await loadExceptions();
+      return;
+    }
+
+    const manageBtn = e.target.closest(".manage-exceptions-year");
+    if (manageBtn) {
+      selectedExceptionYearId = Number(manageBtn.dataset.id || 0);
+      selectedExceptionYearLabel = String(manageBtn.dataset.label || "");
+      setExceptionMsg("", true);
+      await loadExceptions();
+      return;
+    }
+
+    const endBtn = e.target.closest(".end-year");
+    if (endBtn) {
+      if (endBtn.hasAttribute("disabled")) return;
+      const yearLabel = String(endBtn.dataset.label || "");
+      const yearId = Number(endBtn.dataset.id || 0);
+      if (!yearId) return;
+      const nextYearLabel = window.prompt(`End ${yearLabel}. Enter next year label (optional):`, "");
+      if (nextYearLabel === null) return;
+      const nextStartMonth = window.prompt("Next year start month (1-12, optional):", "");
+      if (nextStartMonth === null) return;
+      const nextStartDay = window.prompt("Next year start day (1-31, optional):", "");
+      if (nextStartDay === null) return;
+      const nextEndMonth = window.prompt("Next year end month (1-12, optional):", "");
+      if (nextEndMonth === null) return;
+      const nextEndDay = window.prompt("Next year end day (1-31, optional):", "");
+      if (nextEndDay === null) return;
+      if (!window.confirm(`End ${yearLabel} now? Eligible students will be promoted and enrollment will move to next year.`)) return;
+
+      const payload = {};
+      const trimmedNext = String(nextYearLabel || "").trim();
+      if (trimmedNext) payload.next_year_label = trimmedNext;
+      if (String(nextStartMonth || "").trim()) payload.start_month = Number(nextStartMonth);
+      if (String(nextStartDay || "").trim()) payload.start_day = Number(nextStartDay);
+      if (String(nextEndMonth || "").trim()) payload.end_month = Number(nextEndMonth);
+      if (String(nextEndDay || "").trim()) payload.end_day = Number(nextEndDay);
+
+      const res = await fetch(`/admin/academic-years/${encodeURIComponent(yearId)}/end`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(academicYearMsg, data.error || "Failed to end academic year");
+        return;
+      }
+      const promotedCount = Number(data.promotion_summary?.promoted_count || 0);
+      setMsg(academicYearMsg, `${data.message || "Academic year ended"} Promoted: ${promotedCount}`, true);
+      await loadAcademicYears();
+      await loadExceptions();
+    }
+  });
+
+  btnAddException.addEventListener("click", async () => {
+    if (!selectedExceptionYearId) {
+      setExceptionMsg("Select an academic year first.");
+      return;
+    }
+    const programName = exceptionProgramSelect.value.trim();
+    if (!programName) {
+      setExceptionMsg("Select a program.");
+      return;
+    }
+    const res = await fetch(`/admin/academic-years/${encodeURIComponent(selectedExceptionYearId)}/exceptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ program_name: programName })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setExceptionMsg(data.error || "Failed to save exception.");
+      return;
+    }
+    setExceptionMsg(data.message || "Exception saved.", true);
+    await loadExceptions();
+  });
+
+  exceptionList.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".remove-exception");
+    if (!btn || !selectedExceptionYearId) return;
+    const res = await fetch(
+      `/admin/academic-years/${encodeURIComponent(selectedExceptionYearId)}/exceptions/${encodeURIComponent(btn.dataset.id)}`,
+      { method: "DELETE" }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setExceptionMsg(data.error || "Failed to remove exception.");
+      return;
+    }
+    setExceptionMsg(data.message || "Exception removed.", true);
+    await loadExceptions();
+  });
+
+  (async () => {
+    await loadProgramOptions();
+    await loadAcademicYears();
+  })();
+</script>
+
+{% endblock %}

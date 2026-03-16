@@ -1,0 +1,701 @@
+{% extends "layout.html" %}
+{% set title = "Register Student" %}
+{% block content %}
+
+<div class="grid lg:grid-cols-3 gap-4">
+
+  <!-- LEFT: Student Details -->
+  <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="text-sm font-semibold">Student Details</div>
+        <div class="text-xs text-slate-500 mt-1">Fill the bio data and capture at least 2 face angles.</div>
+      </div>
+
+      <!-- Save status -->
+      <div id="saveBadge"
+           class="hidden px-3 py-2 rounded-full text-xs bg-slate-100 text-slate-700">
+        Ready
+      </div>
+    </div>
+
+    <!-- IMPORTANT: add method/action later when backend is ready -->
+    <form id="studentForm" class="mt-5 grid md:grid-cols-2 gap-4" novalidate>
+      <!-- First name -->
+      <div>
+        <label class="text-sm font-medium">First Name <span class="text-rose-600">*</span></label>
+        <input id="firstName" name="first_name" required
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. Emmanuel">
+        <p class="mt-1 text-xs text-rose-600 hidden" id="errFirstName">First name is required.</p>
+      </div>
+
+      <!-- Middle name -->
+      <div>
+        <label class="text-sm font-medium">Middle Name</label>
+        <input id="middleName" name="middle_name"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. Kofi">
+      </div>
+
+      <!-- Last name -->
+      <div>
+        <label class="text-sm font-medium">Last Name <span class="text-rose-600">*</span></label>
+        <input id="lastName" name="last_name" required
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. Adane">
+        <p class="mt-1 text-xs text-rose-600 hidden" id="errLastName">Last name is required.</p>
+      </div>
+
+      <!-- Index number -->
+      <div>
+        <label class="text-sm font-medium">Index Number (Auto-generated)</label>
+        <input id="indexNo" name="index_number" readonly
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="Generated after save">
+        <p class="mt-1 text-xs text-slate-500" id="errIndex">Generated using current year + program + level sequence.</p>
+      </div>
+
+      <!-- Programme -->
+      <div>
+        <label class="text-sm font-medium">Programme <span class="text-rose-600">*</span></label>
+        <select id="programme" name="programme" required
+                class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+          <option value="">Select programme</option>
+        </select>
+        <p class="mt-1 text-xs text-rose-600 hidden" id="errProgramme">Programme is required.</p>
+      </div>
+
+      <!-- Level -->
+      <div>
+        <label class="text-sm font-medium">Level <span class="text-rose-600">*</span></label>
+        <select id="level" name="level" required
+                class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+          <option value="">Select level</option>
+          <option>100</option><option>200</option><option>300</option><option>400</option><option>500</option><option>600</option>
+        </select>
+        <p class="mt-1 text-xs text-rose-600 hidden" id="errLevel">Level is required.</p>
+      </div>
+
+      <!-- Department -->
+      <div>
+        <label class="text-sm font-medium">Department</label>
+        <input id="department" name="department"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. Computer Science">
+      </div>
+
+      <!-- Gender -->
+      <div>
+        <label class="text-sm font-medium">Gender</label>
+        <select id="gender" name="gender"
+                class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+          <option value="">Select</option>
+          <option>Male</option>
+          <option>Female</option>
+          <option>Other</option>
+        </select>
+      </div>
+
+      <!-- Date of birth -->
+      <div>
+        <label class="text-sm font-medium">Date of Birth</label>
+        <input id="dob" name="dob" type="date"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+      </div>
+
+      <!-- Nationality -->
+      <div>
+        <label class="text-sm font-medium">Nationality</label>
+        <input id="nationality" name="nationality"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. Ghanaian">
+      </div>
+
+      <!-- Email -->
+      <div>
+        <label class="text-sm font-medium">Email</label>
+        <input id="email" name="email" type="email"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="student@st.upsa.edu.gh">
+      </div>
+
+      <!-- Phone -->
+      <div>
+        <label class="text-sm font-medium">Phone</label>
+        <input id="phone" name="phone"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="024xxxxxxx">
+      </div>
+
+      <!-- Emergency contact -->
+      <div>
+        <label class="text-sm font-medium">Emergency Contact Name</label>
+        <input id="emergName" name="emergency_name"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. Parent/Guardian name">
+      </div>
+
+      <div>
+        <label class="text-sm font-medium">Emergency Contact Phone</label>
+        <input id="emergPhone" name="emergency_phone"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. 024xxxxxxx">
+      </div>
+
+      <!-- Notes -->
+      <div class="md:col-span-2">
+        <label class="text-sm font-medium">Notes</label>
+        <textarea id="notes" name="notes" rows="3"
+                  class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+                  placeholder="Optional remarks (e.g. name spelling confirmation, etc.)"></textarea>
+      </div>
+
+      <!-- Hidden field to send captures later -->
+      <input type="hidden" id="faceCapturesField" name="face_captures_json">
+
+      <!-- Actions -->
+      <div class="md:col-span-2 flex flex-col sm:flex-row gap-2 pt-2">
+        <button id="btnReset" type="button"
+                class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">
+          Reset
+        </button>
+        <button id="btnSave" type="submit"
+                class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-3 font-semibold hover:bg-brand-700 transition">
+          Save Student
+        </button>
+      </div>
+
+      <p class="md:col-span-2 text-xs text-slate-500 mt-1">
+        Required: First Name, Last Name, Programme, Level. Index number is generated automatically.
+      </p>
+    </form>
+  </div>
+
+  <!-- RIGHT: Biometric Enrollment -->
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="text-sm font-semibold">Biometric Enrollment</div>
+        <p class="text-sm text-slate-600 mt-2">
+          Capture multiple angles for better recognition accuracy.
+        </p>
+      </div>
+
+      <div class="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+        <span id="capCount">0</span> captures
+      </div>
+    </div>
+
+    <!-- Camera -->
+    <div class="mt-4 rounded-2xl border border-slate-200 bg-black overflow-hidden relative">
+      <video id="video" class="w-full h-44 object-cover" autoplay playsinline></video>
+      <div class="pointer-events-none absolute inset-0 border-2 border-white/10"></div>
+      <div class="absolute top-3 left-3 text-xs px-2 py-1 rounded-full bg-white/10 text-white backdrop-blur">
+        Camera: <span id="camLabel">Back (preferred)</span>
+      </div>
+    </div>
+
+    <canvas id="canvas" class="hidden"></canvas>
+
+    <!-- Preview strip -->
+    <div class="mt-4">
+      <div class="text-xs text-slate-500 mb-2">Captures</div>
+      <div id="capturesWrap" class="flex gap-2 overflow-x-auto pb-1">
+        <div id="capturesEmpty" class="w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          No captures yet. Capture at least 2 angles.
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 space-y-2">
+      <button id="btnCapture" type="button"
+              class="w-full rounded-xl bg-brand-600 text-white py-3 font-semibold hover:bg-brand-700 transition">
+        Capture Face
+      </button>
+
+      <input id="uploadImages" type="file" accept="image/*" multiple
+             class="w-full text-xs text-slate-600 file:mr-2 file:rounded-lg file:border file:border-slate-200 file:bg-white file:px-3 file:py-2">
+
+      <button id="btnSwitch" type="button"
+              class="w-full rounded-xl border border-slate-200 py-3 font-semibold hover:bg-slate-50 transition">
+        Switch Camera
+      </button>
+
+      <button id="btnStop" type="button"
+              class="w-full rounded-xl border border-slate-200 py-3 font-semibold hover:bg-slate-50 transition">
+        Stop Camera
+      </button>
+    </div>
+
+    <p class="text-xs text-slate-500 mt-3">
+      Backend should encrypt and securely store facial templates (not raw images).
+    </p>
+  </div>
+</div>
+
+<!-- Review Modal -->
+<div id="reviewModal" class="hidden fixed inset-0 z-50">
+  <div id="reviewOverlay" class="absolute inset-0 bg-black/40"></div>
+
+  <div class="relative min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
+      <div class="p-5 border-b border-slate-200 flex items-start justify-between gap-3">
+        <div>
+          <div class="text-sm font-semibold">Review Captures</div>
+          <div class="text-xs text-slate-500 mt-1">Delete bad captures before saving.</div>
+        </div>
+        <button id="btnCloseReview" class="rounded-xl px-3 py-2 text-sm border border-slate-200 hover:bg-slate-50">
+          Close
+        </button>
+      </div>
+
+      <div class="p-5">
+        <div id="reviewGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div>
+        <div id="reviewEmpty" class="hidden rounded-2xl border border-slate-200 bg-slate-50 p-6 text-slate-600 text-sm">
+          No captures to review.
+        </div>
+
+        <div class="mt-5 flex flex-col sm:flex-row gap-2">
+          <button id="btnClearCaptures" type="button"
+                  class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">
+            Clear All
+          </button>
+          <button id="btnOkReview" type="button"
+                  class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-3 font-semibold hover:bg-brand-700 transition">
+            Done
+          </button>
+        </div>
+
+        <p class="text-xs text-slate-500 mt-3">
+          Recommended: 2–5 clear captures (front + slight left/right).
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const form = document.getElementById("studentForm");
+  const btnReset = document.getElementById("btnReset");
+  const btnSave = document.getElementById("btnSave");
+  const saveBadge = document.getElementById("saveBadge");
+
+  const firstName = document.getElementById("firstName");
+  const middleName = document.getElementById("middleName");
+  const lastName = document.getElementById("lastName");
+  const indexNo = document.getElementById("indexNo");
+  const programme = document.getElementById("programme");
+  const level = document.getElementById("level");
+  const email = document.getElementById("email");
+  const department = document.getElementById("department");
+  const phone = document.getElementById("phone");
+
+  const errFirstName = document.getElementById("errFirstName");
+  const errLastName = document.getElementById("errLastName");
+  const errProgramme = document.getElementById("errProgramme");
+  const errLevel = document.getElementById("errLevel");
+  const faceCapturesField = document.getElementById("faceCapturesField");
+
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const camLabel = document.getElementById("camLabel");
+  const btnCapture = document.getElementById("btnCapture");
+  const uploadImages = document.getElementById("uploadImages");
+  const btnSwitch = document.getElementById("btnSwitch");
+  const btnStop = document.getElementById("btnStop");
+  const capturesWrap = document.getElementById("capturesWrap");
+  const capturesEmpty = document.getElementById("capturesEmpty");
+  const capCount = document.getElementById("capCount");
+
+  const reviewModal = document.getElementById("reviewModal");
+  const reviewOverlay = document.getElementById("reviewOverlay");
+  const btnCloseReview = document.getElementById("btnCloseReview");
+  const btnOkReview = document.getElementById("btnOkReview");
+  const btnClearCaptures = document.getElementById("btnClearCaptures");
+  const reviewGrid = document.getElementById("reviewGrid");
+  const reviewEmpty = document.getElementById("reviewEmpty");
+
+  let stream = null;
+  let devices = [];
+  let activeDeviceIndex = 0;
+  let faceCaptures = [];
+
+  function setBadge(type, text) {
+    saveBadge.classList.remove("hidden");
+    saveBadge.className = "px-3 py-2 rounded-full text-xs";
+    if (type === "ok") saveBadge.classList.add("bg-emerald-50", "text-emerald-700");
+    else if (type === "warn") saveBadge.classList.add("bg-amber-50", "text-amber-700");
+    else if (type === "bad") saveBadge.classList.add("bg-rose-50", "text-rose-700");
+    else saveBadge.classList.add("bg-slate-100", "text-slate-700");
+    saveBadge.textContent = text;
+  }
+
+  function validateRequired() {
+    let ok = true;
+    const firstOk = firstName.value.trim().length > 0;
+    errFirstName.classList.toggle("hidden", firstOk);
+    ok = ok && firstOk;
+
+    const lastOk = lastName.value.trim().length > 0;
+    errLastName.classList.toggle("hidden", lastOk);
+    ok = ok && lastOk;
+
+    const progOk = programme.value.trim().length > 0;
+    errProgramme.classList.toggle("hidden", progOk);
+    ok = ok && progOk;
+
+    const levelOk = level.value.trim().length > 0;
+    errLevel.classList.toggle("hidden", levelOk);
+    ok = ok && levelOk;
+
+    if (!email.value.trim()) {
+      setBadge("bad", "Email is required.");
+      return false;
+    }
+    return ok;
+  }
+
+  async function loadProgramsIntoSelect() {
+    try {
+      const res = await fetch("/admin/programs");
+      const data = await res.json().catch(() => ({}));
+      const programs = Array.isArray(data.programs) ? data.programs : [];
+
+      programme.innerHTML = '<option value="">Select programme</option>';
+      if (!programs.length) {
+        setBadge("warn", "No programs found. Add programs first in Admin > Program Courses.");
+        return;
+      }
+
+      let hasActive = false;
+      programs.forEach((p) => {
+        const opt = document.createElement("option");
+        opt.value = p.program_name || "";
+        if (p.is_active) {
+          hasActive = true;
+          opt.textContent = p.program_name || "";
+        } else {
+          opt.textContent = `${p.program_name || ""} (Unavailable)`;
+          opt.disabled = true;
+        }
+        programme.appendChild(opt);
+      });
+      if (!hasActive) {
+        setBadge("warn", "Programs exist but all are unavailable. Mark one available first.");
+      }
+    } catch (error) {
+      console.error(error);
+      programme.innerHTML = '<option value="">Select programme</option>';
+      setBadge("bad", "Failed to load programs list.");
+    }
+  }
+
+  async function loadAcademicYearStatus() {
+    try {
+      const res = await fetch("/admin/academic-years");
+      const data = await res.json().catch(() => ({}));
+      const years = Array.isArray(data.academic_years) ? data.academic_years : [];
+      const current = years.find((y) => y.is_current);
+      if (!current) return;
+      if (current.enrollment_open) {
+        setBadge("neutral", `Current academic year: ${current.year_label}. Enrollment is open.`);
+      } else {
+        setBadge("warn", `Current academic year: ${current.year_label}. Enrollment is closed.`);
+      }
+    } catch (_) {
+      // no-op
+    }
+  }
+
+  function getSafeUuid() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  function stopStream() {
+    if (!stream) return;
+    stream.getTracks().forEach((track) => track.stop());
+    stream = null;
+  }
+
+  async function loadDevices() {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    devices = all.filter((d) => d.kind === "videoinput");
+    if (!devices.length) throw new Error("No camera devices found.");
+  }
+
+  async function startCameraPreferBack() {
+    stopStream();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false
+      });
+      video.srcObject = stream;
+      camLabel.textContent = "Back (preferred)";
+      return;
+    } catch (_) {}
+
+    await loadDevices();
+    activeDeviceIndex = 0;
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: devices[activeDeviceIndex].deviceId } },
+      audio: false
+    });
+    video.srcObject = stream;
+    camLabel.textContent = "Default";
+  }
+
+  async function switchCamera() {
+    await loadDevices();
+    if (devices.length <= 1) {
+      alert("Only one camera detected.");
+      return;
+    }
+    activeDeviceIndex = (activeDeviceIndex + 1) % devices.length;
+    stopStream();
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: devices[activeDeviceIndex].deviceId } },
+      audio: false
+    });
+    video.srcObject = stream;
+    camLabel.textContent = devices[activeDeviceIndex].label || `Camera ${activeDeviceIndex + 1}`;
+  }
+
+  function renderCapturesStrip() {
+    capCount.textContent = String(faceCaptures.length);
+    capturesWrap.innerHTML = "";
+    if (!faceCaptures.length) {
+      capturesWrap.appendChild(capturesEmpty);
+      capturesEmpty.classList.remove("hidden");
+      return;
+    }
+    capturesEmpty.classList.add("hidden");
+    faceCaptures.forEach((capture) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "relative flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden border border-slate-200 bg-slate-50";
+      button.title = "Click to review";
+
+      const img = document.createElement("img");
+      img.src = capture.dataUrl;
+      img.className = "w-full h-full object-cover";
+      img.alt = "Capture";
+      button.appendChild(img);
+      button.addEventListener("click", openReviewModal);
+      capturesWrap.appendChild(button);
+    });
+  }
+
+  function renderReviewGrid() {
+    reviewGrid.innerHTML = "";
+    if (!faceCaptures.length) {
+      reviewEmpty.classList.remove("hidden");
+      return;
+    }
+    reviewEmpty.classList.add("hidden");
+    faceCaptures.forEach((capture) => {
+      const card = document.createElement("div");
+      card.className = "rounded-2xl border border-slate-200 overflow-hidden";
+
+      const img = document.createElement("img");
+      img.src = capture.dataUrl;
+      img.alt = "Capture";
+      img.className = "w-full h-32 object-cover";
+
+      const footer = document.createElement("div");
+      footer.className = "p-3 flex items-center justify-between gap-2";
+
+      const meta = document.createElement("div");
+      meta.className = "text-xs text-slate-500";
+      meta.textContent = new Date(capture.ts).toLocaleString();
+
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50";
+      del.textContent = "Delete";
+      del.addEventListener("click", () => {
+        faceCaptures = faceCaptures.filter((x) => x.id !== capture.id);
+        renderCapturesStrip();
+        renderReviewGrid();
+      });
+
+      footer.appendChild(meta);
+      footer.appendChild(del);
+      card.appendChild(img);
+      card.appendChild(footer);
+      reviewGrid.appendChild(card);
+    });
+  }
+
+  function openReviewModal() {
+    reviewModal.classList.remove("hidden");
+    renderReviewGrid();
+  }
+
+  function closeReviewModal() {
+    reviewModal.classList.add("hidden");
+  }
+
+  function captureFrame() {
+    if (!video.srcObject) {
+      alert("Camera not started.");
+      return;
+    }
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) {
+      alert("Camera is still loading. Try again.");
+      return;
+    }
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    faceCaptures.unshift({ id: getSafeUuid(), dataUrl, ts: Date.now() });
+    renderCapturesStrip();
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function importUploads() {
+    const files = Array.from(uploadImages.files || []);
+    if (!files.length) return;
+    for (const file of files.slice(0, 10)) {
+      const dataUrl = await fileToDataUrl(file);
+      faceCaptures.unshift({ id: getSafeUuid(), dataUrl, ts: Date.now() });
+    }
+    renderCapturesStrip();
+    uploadImages.value = "";
+    setBadge("ok", "Uploaded face image(s) added.");
+  }
+
+  async function submitStudent() {
+    if (!validateRequired()) {
+      setBadge("bad", "Please fill all required fields.");
+      return;
+    }
+    if (faceCaptures.length < 2) {
+      setBadge("bad", "Capture at least 2 face images.");
+      return;
+    }
+
+    faceCapturesField.value = JSON.stringify(faceCaptures);
+    const firstNameValue = firstName.value.trim();
+    const middleNameValue = middleName.value.trim();
+    const lastNameValue = lastName.value.trim();
+    const fullNameValue = [firstNameValue, middleNameValue, lastNameValue].filter(Boolean).join(" ");
+    const payload = {
+      full_name: fullNameValue,
+      first_name: firstNameValue,
+      middle_name: middleNameValue,
+      last_name: lastNameValue,
+      email: email.value.trim(),
+      phone: phone.value.trim(),
+      department: department.value.trim(),
+      course: programme.value.trim(),
+      year_level: level.value.trim(),
+      face_images: faceCaptures.map((x) => x.dataUrl)
+    };
+
+    btnSave.disabled = true;
+    setBadge("warn", "Saving to database...");
+    try {
+      const res = await fetch("/students/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBadge("bad", data.error || "Registration failed.");
+        return;
+      }
+      const generatedIndex = data.student?.student_id || "N/A";
+      const temporaryPassword = data.temporary_password || data.student?.temporary_password || "N/A";
+      indexNo.value = generatedIndex;
+      setBadge("ok", "Student saved to database.");
+      alert(
+        `Student registered successfully.\n` +
+        `Generated index: ${generatedIndex}\n` +
+        `Temporary password: ${temporaryPassword}\n` +
+        `Provide these credentials to the student.`
+      );
+      form.reset();
+      faceCaptures = [];
+      renderCapturesStrip();
+      errFirstName.classList.add("hidden");
+      errLastName.classList.add("hidden");
+      errProgramme.classList.add("hidden");
+      errLevel.classList.add("hidden");
+    } catch (error) {
+      setBadge("bad", "Unable to reach server.");
+      console.error(error);
+    } finally {
+      btnSave.disabled = false;
+    }
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await submitStudent();
+  });
+
+  btnReset.addEventListener("click", () => {
+    form.reset();
+    faceCaptures = [];
+    renderCapturesStrip();
+    errFirstName.classList.add("hidden");
+    errLastName.classList.add("hidden");
+    errProgramme.classList.add("hidden");
+    errLevel.classList.add("hidden");
+    setBadge("neutral", "Form reset.");
+  });
+
+  btnCapture.addEventListener("click", captureFrame);
+  uploadImages.addEventListener("change", importUploads);
+  btnSwitch.addEventListener("click", switchCamera);
+  btnStop.addEventListener("click", () => {
+    stopStream();
+    camLabel.textContent = "Stopped";
+  });
+  capturesEmpty.addEventListener("click", openReviewModal);
+  btnCloseReview.addEventListener("click", closeReviewModal);
+  btnOkReview.addEventListener("click", closeReviewModal);
+  reviewOverlay.addEventListener("click", closeReviewModal);
+  btnClearCaptures.addEventListener("click", () => {
+    faceCaptures = [];
+    renderCapturesStrip();
+    renderReviewGrid();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !reviewModal.classList.contains("hidden")) closeReviewModal();
+  });
+
+  (async () => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        alert("Camera API not supported in this browser.");
+        return;
+      }
+      await loadProgramsIntoSelect();
+      await loadAcademicYearStatus();
+      await startCameraPreferBack();
+      renderCapturesStrip();
+    } catch (error) {
+      console.error(error);
+      alert("Could not access camera. Allow permissions and retry.");
+    }
+  })();
+</script>
+
+{% endblock %}

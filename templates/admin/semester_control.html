@@ -1,0 +1,208 @@
+{% extends "layout.html" %}
+{% set title = "Semester Control" %}
+{% block content %}
+
+<div class="max-w-5xl mx-auto grid lg:grid-cols-2 gap-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Semester Progress Control</div>
+    <p class="text-xs text-slate-500 mt-1">Mark a semester ended to unlock the next one for students in the same program and level.</p>
+
+    <form id="semesterStatusForm" class="mt-4 space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Program</label>
+        <select id="statusProgramSelect" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select program</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Level</label>
+        <select id="statusLevelSelect" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select level</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Semester</label>
+        <select id="statusSemesterSelect" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select semester</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Action</label>
+        <select id="statusActionSelect" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="end">Mark Ended</option>
+          <option value="open">Reopen</option>
+        </select>
+      </div>
+      <button class="w-full rounded-xl bg-slate-900 text-white px-4 py-3 text-sm font-semibold hover:bg-slate-800">
+        Save Semester Status
+      </button>
+    </form>
+    <p id="semesterStatusMsg" class="text-xs mt-3 text-slate-500"></p>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="flex items-center justify-between gap-2">
+      <div>
+        <div class="text-sm font-semibold">Current Semester Statuses</div>
+        <p class="text-xs text-slate-500 mt-1">Shows recorded status rows for the selected program and level.</p>
+      </div>
+      <button id="btnRefreshStatuses" class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50">
+        Refresh
+      </button>
+    </div>
+    <div class="mt-3 overflow-auto rounded-xl border border-slate-200">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500">
+          <tr>
+            <th class="text-left py-2 px-3">Program</th>
+            <th class="text-left py-2 px-3">Level</th>
+            <th class="text-left py-2 px-3">Semester</th>
+            <th class="text-left py-2 px-3">State</th>
+          </tr>
+        </thead>
+        <tbody id="semesterStatusBody" class="divide-y">
+          <tr><td colspan="4" class="py-6 text-center text-slate-500">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  const statusProgramSelect = document.getElementById("statusProgramSelect");
+  const statusLevelSelect = document.getElementById("statusLevelSelect");
+  const statusSemesterSelect = document.getElementById("statusSemesterSelect");
+  const statusActionSelect = document.getElementById("statusActionSelect");
+  const semesterStatusForm = document.getElementById("semesterStatusForm");
+  const semesterStatusMsg = document.getElementById("semesterStatusMsg");
+  const semesterStatusBody = document.getElementById("semesterStatusBody");
+  const btnRefreshStatuses = document.getElementById("btnRefreshStatuses");
+  const programMetaCache = {};
+
+  function setMsg(el, text, ok = false) {
+    el.textContent = text;
+    el.className = ok ? "text-xs mt-3 text-emerald-700" : "text-xs mt-3 text-rose-700";
+  }
+
+  function programLevels(durationYears) {
+    const years = Math.max(1, Math.min(10, Number(durationYears || 4)));
+    const out = [];
+    for (let i = 1; i <= years; i += 1) out.push(String(i * 100));
+    return out;
+  }
+
+  function setLevelOptions(selectEl, levels) {
+    selectEl.innerHTML = '<option value="">Select level</option>';
+    levels.forEach((lvl) => {
+      const opt = document.createElement("option");
+      opt.value = lvl;
+      opt.textContent = lvl;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function setSemesterSelectOptions(maxCount) {
+    statusSemesterSelect.innerHTML = '<option value="">Select semester</option>';
+    const count = Number(maxCount || 0);
+    for (let i = 1; i <= count; i += 1) {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `Semester ${i}`;
+      statusSemesterSelect.appendChild(opt);
+    }
+  }
+
+  async function loadPrograms() {
+    const res = await fetch("/admin/programs");
+    const data = await res.json().catch(() => ({}));
+    const programs = Array.isArray(data.programs) ? data.programs : [];
+    Object.keys(programMetaCache).forEach((k) => delete programMetaCache[k]);
+    statusProgramSelect.innerHTML = '<option value="">Select program</option>';
+    programs.forEach((p) => {
+      programMetaCache[String(p.program_name || "").toLowerCase()] = p;
+      const opt = document.createElement("option");
+      opt.value = p.program_name;
+      opt.textContent = p.is_active ? p.program_name : `${p.program_name} (Unavailable)`;
+      opt.disabled = !p.is_active;
+      statusProgramSelect.appendChild(opt);
+    });
+  }
+
+  async function loadStatuses() {
+    const q = new URLSearchParams();
+    if (statusProgramSelect.value.trim()) q.set("program", statusProgramSelect.value.trim());
+    if (statusLevelSelect.value.trim()) q.set("level", statusLevelSelect.value.trim());
+    semesterStatusBody.innerHTML = '<tr><td colspan="4" class="py-6 text-center text-slate-500">Loading...</td></tr>';
+    const res = await fetch(`/admin/program-level-semester-statuses?${q.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    const rows = Array.isArray(data.statuses) ? data.statuses : [];
+    if (!rows.length) {
+      semesterStatusBody.innerHTML = '<tr><td colspan="4" class="py-6 text-center text-slate-500">No statuses recorded.</td></tr>';
+      return;
+    }
+    semesterStatusBody.innerHTML = "";
+    rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="py-2 px-3">${r.program_name || ""}</td>
+        <td class="py-2 px-3">${r.level_name || ""}</td>
+        <td class="py-2 px-3">${r.semester_no || ""}</td>
+        <td class="py-2 px-3">${r.is_ended ? "Ended" : "Open"}</td>
+      `;
+      semesterStatusBody.appendChild(tr);
+    });
+  }
+
+  semesterStatusForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      program_name: statusProgramSelect.value.trim(),
+      level_name: statusLevelSelect.value.trim(),
+      semester_no: statusSemesterSelect.value.trim(),
+      is_ended: statusActionSelect.value === "end"
+    };
+    try {
+      const selectedOpt = statusProgramSelect.options[statusProgramSelect.selectedIndex];
+      if (!selectedOpt || selectedOpt.disabled) {
+        throw new Error("Selected program is unavailable. Mark it available first.");
+      }
+      const res = await fetch("/admin/program-level-semester-statuses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update semester status");
+      setMsg(semesterStatusMsg, data.message || "Saved", true);
+      await loadStatuses();
+    } catch (err) {
+      setMsg(semesterStatusMsg, err.message || "Failed to update semester status");
+    }
+  });
+
+  statusProgramSelect.addEventListener("change", async () => {
+    const program = statusProgramSelect.value.trim().toLowerCase();
+    const meta = programMetaCache[program];
+    setLevelOptions(statusLevelSelect, meta ? programLevels(meta.duration_years) : []);
+    const semCount = meta ? Number(meta.semesters_per_year || 0) : 0;
+    setSemesterSelectOptions(semCount);
+    await loadStatuses();
+  });
+
+  statusLevelSelect.addEventListener("change", async () => {
+    const program = statusProgramSelect.value.trim().toLowerCase();
+    const meta = programMetaCache[program];
+    const semCount = meta ? Number(meta.semesters_per_year || 0) : 0;
+    setSemesterSelectOptions(semCount);
+    await loadStatuses();
+  });
+
+  btnRefreshStatuses.addEventListener("click", loadStatuses);
+
+  (async () => {
+    await loadPrograms();
+    await loadStatuses();
+  })();
+</script>
+
+{% endblock %}

@@ -1,0 +1,176 @@
+{% extends "layout.html" %}
+{% set title = "Lecturer Course Assignments" %}
+{% block content %}
+
+<div class="grid lg:grid-cols-3 gap-4">
+  <div class="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Assign Course To Lecturer</div>
+    <p class="text-xs text-slate-500 mt-1">Lecturers will only see assigned courses.</p>
+
+    <form id="assignForm" class="mt-4 space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Lecturer</label>
+        <select id="lecturerId" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select lecturer</option>
+          {% for l in lecturers %}
+          <option value="{{ l.id }}">{{ l.full_name }} ({{ l.email }})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Course</label>
+        <select id="courseCode" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select course</option>
+          {% for c in courses %}
+          <option value="{{ c.course_code }}">{{ c.course_code }}{% if c.course_title %} - {{ c.course_title }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Course Title (optional)</label>
+        <input id="courseTitle" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+               placeholder="Leave blank to keep current title">
+      </div>
+
+      <button class="w-full rounded-xl bg-brand-600 text-white px-4 py-3 text-sm font-semibold hover:bg-brand-700">
+        Save Assignment
+      </button>
+    </form>
+    <p id="assignMsg" class="text-xs mt-3 text-slate-500"></p>
+  </div>
+
+  <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <div class="text-sm font-semibold">Current Lecturer Course Assignments</div>
+        <p class="text-xs text-slate-500 mt-1">Only active mappings are shown.</p>
+      </div>
+      <button id="btnReload" class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+        Refresh
+      </button>
+    </div>
+
+    <div class="mt-4 overflow-auto rounded-xl border border-slate-200">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500">
+          <tr>
+            <th class="text-left py-3 px-3">Lecturer</th>
+            <th class="text-left py-3 px-3">Course Code</th>
+            <th class="text-left py-3 px-3">Course Title</th>
+            <th class="text-left py-3 px-3">Assigned</th>
+            <th class="text-left py-3 px-3">Action</th>
+          </tr>
+        </thead>
+        <tbody id="mappingBody" class="divide-y">
+          {% for m in mappings %}
+          <tr>
+            <td class="py-3 px-3">{{ m.lecturer_name or "N/A" }}</td>
+            <td class="py-3 px-3">{{ m.course_code }}</td>
+            <td class="py-3 px-3">{{ m.course_title or "-" }}</td>
+            <td class="py-3 px-3">{{ m.assigned_at.strftime('%Y-%m-%d %H:%M') if m.assigned_at else "N/A" }}</td>
+            <td class="py-3 px-3">
+              <button class="remove-map rounded-lg border border-rose-200 text-rose-700 px-2 py-1 text-xs hover:bg-rose-50"
+                      data-id="{{ m.id }}">
+                Remove
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if mappings|length == 0 %}
+          <tr><td colspan="5" class="py-6 text-center text-slate-500">No lecturer-course assignments yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  const assignForm = document.getElementById("assignForm");
+  const assignMsg = document.getElementById("assignMsg");
+  const mappingBody = document.getElementById("mappingBody");
+  const btnReload = document.getElementById("btnReload");
+
+  function setMsg(text, ok = false) {
+    assignMsg.textContent = text;
+    assignMsg.className = ok ? "text-xs mt-3 text-emerald-700" : "text-xs mt-3 text-rose-700";
+  }
+
+  function rowHtml(m) {
+    const assignedAt = m.assigned_at ? String(m.assigned_at).replace("T", " ").slice(0, 16) : "N/A";
+    return `
+      <tr>
+        <td class="py-3 px-3">${m.lecturer_name || "N/A"}</td>
+        <td class="py-3 px-3">${m.course_code || ""}</td>
+        <td class="py-3 px-3">${m.course_title || "-"}</td>
+        <td class="py-3 px-3">${assignedAt}</td>
+        <td class="py-3 px-3">
+          <button class="remove-map rounded-lg border border-rose-200 text-rose-700 px-2 py-1 text-xs hover:bg-rose-50"
+                  data-id="${m.id}">
+            Remove
+          </button>
+        </td>
+      </tr>
+    `;
+  }
+
+  async function loadMappings() {
+    mappingBody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-500">Loading...</td></tr>`;
+    const res = await fetch("/admin/lecturer-courses");
+    const data = await res.json().catch(() => ({}));
+    const rows = Array.isArray(data.mappings) ? data.mappings : [];
+    if (!rows.length) {
+      mappingBody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-500">No lecturer-course assignments yet.</td></tr>`;
+      return;
+    }
+    mappingBody.innerHTML = rows.map(rowHtml).join("");
+  }
+
+  assignForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      lecturer_id: Number(document.getElementById("lecturerId").value || 0),
+      course_code: document.getElementById("courseCode").value.trim(),
+      course_title: document.getElementById("courseTitle").value.trim()
+    };
+    if (!payload.lecturer_id || !payload.course_code) {
+      setMsg("Select lecturer and course.");
+      return;
+    }
+    try {
+      const res = await fetch("/admin/lecturer-courses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save assignment");
+      setMsg(data.message || "Assignment saved", true);
+      assignForm.reset();
+      await loadMappings();
+    } catch (err) {
+      setMsg(err.message || "Failed to save assignment");
+    }
+  });
+
+  mappingBody.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".remove-map");
+    if (!btn) return;
+    if (!window.confirm("Remove this lecturer-course assignment?")) return;
+    const id = btn.dataset.id;
+    const res = await fetch(`/admin/lecturer-courses/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMsg(data.error || "Failed to remove assignment");
+      return;
+    }
+    setMsg(data.message || "Assignment removed", true);
+    await loadMappings();
+  });
+
+  btnReload.addEventListener("click", loadMappings);
+</script>
+
+{% endblock %}

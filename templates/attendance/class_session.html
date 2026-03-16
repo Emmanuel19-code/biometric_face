@@ -1,0 +1,176 @@
+{% extends "layout.html" %}
+{% set title = "Class Attendance" %}
+{% block content %}
+
+<div class="grid lg:grid-cols-2 gap-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Class Attendance Verification</div>
+    <p class="text-xs text-slate-500 mt-1">Lecturers can only mark attendance for assigned courses.</p>
+
+    <div class="mt-4 space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Course</label>
+        <select id="courseCode" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm">
+          <option value="">Select course</option>
+          {% for c in courses %}
+          <option value="{{ c.course_code }}">{{ c.course_code }}{% if c.course_title %} - {{ c.course_title }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Student ID / Index</label>
+        <input id="studentId" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+               placeholder="e.g. 10300087">
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-black overflow-hidden relative">
+        <video id="video" class="w-full h-80 object-cover" autoplay playsinline></video>
+      </div>
+      <canvas id="canvas" class="hidden"></canvas>
+
+      <div class="flex flex-col sm:flex-row gap-2">
+        <button id="btnCapture"
+                class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-3 text-sm font-semibold hover:bg-brand-700">
+          Capture Image
+        </button>
+        <input id="probeFile" type="file" accept="image/*"
+               class="w-full text-xs text-slate-600 file:mr-2 file:rounded-lg file:border file:border-slate-200 file:bg-white file:px-3 file:py-2">
+      </div>
+
+      <div class="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+        <img id="probePreview" class="w-full h-64 object-cover hidden" alt="Probe preview">
+        <div id="probeEmpty" class="h-64 flex items-center justify-center text-slate-500 text-sm">No probe image selected</div>
+      </div>
+
+      <button id="btnVerify"
+              class="w-full rounded-xl bg-emerald-600 text-white px-4 py-3 text-sm font-semibold hover:bg-emerald-700">
+        Mark Class Attendance
+      </button>
+
+      <div id="verifyResult" class="rounded-xl border border-slate-200 p-4 text-sm">
+        <div class="text-slate-500">Result</div>
+        <div id="resultText" class="mt-2 font-semibold">Waiting for verification.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">What this page does</div>
+    <ul class="mt-3 text-sm text-slate-600 list-disc list-inside space-y-2">
+      <li>Validates biometric face match for the selected student.</li>
+      <li>Records attendance against selected course and today's date.</li>
+      <li>Prevents lecturers from marking courses not assigned to them.</li>
+    </ul>
+
+    <a href="{{ url_for('web.class_attendance_logs_page') }}"
+       class="inline-flex mt-6 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50">
+      Open Class Attendance Logs
+    </a>
+  </div>
+</div>
+
+<script>
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const studentIdInput = document.getElementById("studentId");
+  const courseCodeInput = document.getElementById("courseCode");
+  const probeFile = document.getElementById("probeFile");
+  const probePreview = document.getElementById("probePreview");
+  const probeEmpty = document.getElementById("probeEmpty");
+  const btnCapture = document.getElementById("btnCapture");
+  const btnVerify = document.getElementById("btnVerify");
+  const resultText = document.getElementById("resultText");
+
+  let probeImageDataUrl = "";
+
+  function setProbe(dataUrl) {
+    probeImageDataUrl = dataUrl || "";
+    if (!probeImageDataUrl) {
+      probePreview.classList.add("hidden");
+      probeEmpty.classList.remove("hidden");
+      return;
+    }
+    probePreview.src = probeImageDataUrl;
+    probePreview.classList.remove("hidden");
+    probeEmpty.classList.add("hidden");
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function startCamera() {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    video.srcObject = stream;
+  }
+
+  function capture() {
+    if (!video.srcObject || !video.videoWidth || !video.videoHeight) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setProbe(canvas.toDataURL("image/jpeg", 0.92));
+  }
+
+  async function markAttendance() {
+    const studentId = (studentIdInput.value || "").trim();
+    const courseCode = (courseCodeInput.value || "").trim();
+    if (!courseCode) {
+      resultText.textContent = "Select a course first.";
+      return;
+    }
+    if (!studentId) {
+      resultText.textContent = "Enter student ID first.";
+      return;
+    }
+    if (!probeImageDataUrl) {
+      resultText.textContent = "Capture or upload an image first.";
+      return;
+    }
+
+    resultText.textContent = "Marking attendance...";
+    try {
+      const res = await fetch("/class/attendance/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          student_id: studentId,
+          course_code: courseCode,
+          live_image: probeImageDataUrl
+        })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Attendance verification failed");
+      const confidence = Number(body.confidence || 0).toFixed(2);
+      resultText.textContent = `Marked successfully (confidence ${confidence}).`;
+    } catch (err) {
+      resultText.textContent = err.message || "Attendance verification failed";
+    }
+  }
+
+  btnCapture.addEventListener("click", capture);
+  btnVerify.addEventListener("click", markAttendance);
+  probeFile.addEventListener("change", async () => {
+    const file = probeFile.files && probeFile.files[0];
+    if (!file) return;
+    setProbe(await readFileAsDataUrl(file));
+  });
+
+  (async () => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) return;
+      await startCamera();
+    } catch (e) {
+      resultText.textContent = "Camera unavailable. Use file upload instead.";
+    }
+  })();
+</script>
+
+{% endblock %}

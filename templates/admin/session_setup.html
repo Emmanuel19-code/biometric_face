@@ -1,0 +1,244 @@
+{% extends "layout.html" %}
+{% set title = "Session Setup" %}
+{% block content %}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Create Exam Session</div>
+    <p class="text-xs text-slate-500 mt-1">Add date/time, papers, and assigned lecturers for exam invigilation.</p>
+
+    <form id="createSessionForm" class="mt-4 space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Session Name</label>
+        <select id="sessionName" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2" required>
+          <option value="">Select session name</option>
+          {% for n in session_names %}
+          <option value="{{ n.course_title }}">{{ n.course_title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <select id="courseCode" class="rounded-xl border border-slate-200 px-4 py-2" required>
+          <option value="">Select course code</option>
+          {% for c in courses %}
+          <option value="{{ c.course_code }}">{{ c.course_code }}{% if c.course_title %} - {{ c.course_title }}{% endif %}</option>
+          {% endfor %}
+        </select>
+        <select id="hallId" class="rounded-xl border border-slate-200 px-4 py-2" required>
+          <option value="">Select hall</option>
+          {% for h in halls %}
+          <option value="{{ h.id }}" data-name="{{ h.name }}">{{ h.name }} (Capacity: {{ h.capacity }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <input id="expectedStudents" type="number" min="1" class="rounded-xl border border-slate-200 px-4 py-2" placeholder="Expected students" required />
+        <input id="venue" class="rounded-xl border border-slate-200 px-4 py-2" placeholder="Venue auto-populated from hall" readonly />
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-700">
+        <input id="allowFileUpload" type="checkbox" class="rounded border-slate-300">
+        <span>Allow file upload during exam verification (otherwise capture-only)</span>
+      </label>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-slate-500">Start time</label>
+          <input id="startTime" type="datetime-local" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2" required />
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">End time</label>
+          <input id="endTime" type="datetime-local" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2" required />
+        </div>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Papers (one per line: <code>CODE|TITLE</code> or just <code>TITLE</code>)</label>
+        <textarea id="createPapers" rows="4" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2" placeholder="CS401-A|Algorithms&#10;CS401-B|Systems"></textarea>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Assign Lecturers (Invigilators)</label>
+        <div class="mt-2 max-h-40 overflow-auto border border-slate-200 rounded-xl p-3 space-y-2">
+          {% for inv in invigilators %}
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" class="create-inv" value="{{ inv.id }}">
+            <span>{{ inv.full_name }} ({{ inv.username }})</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <button class="w-full rounded-xl bg-brand-600 text-white py-3 font-semibold hover:bg-brand-700">Create Session</button>
+    </form>
+    <p id="createMsg" class="text-sm mt-3"></p>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Edit Existing Session</div>
+    <p class="text-xs text-slate-500 mt-1">Update papers and assigned lecturers for a selected session.</p>
+
+    <div class="mt-4">
+      <select id="sessionSelect" class="w-full rounded-xl border border-slate-200 px-4 py-2">
+        <option value="">Select session</option>
+        {% for s in sessions %}
+        <option value="{{ s.id }}">{{ s.session_name }} | {{ s.venue or 'N/A' }} | {{ s.start_time.strftime('%Y-%m-%d %H:%M') }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div id="editPanel" class="mt-4 hidden space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Papers</label>
+        <textarea id="editPapers" rows="5" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2"></textarea>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Assigned Lecturers (Invigilators)</label>
+        <div class="mt-2 max-h-40 overflow-auto border border-slate-200 rounded-xl p-3 space-y-2">
+          {% for inv in invigilators %}
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" class="edit-inv" value="{{ inv.id }}">
+            <span>{{ inv.full_name }} ({{ inv.username }})</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <button id="savePapers" class="rounded-xl border border-slate-200 py-2 font-semibold hover:bg-slate-50">Save Papers</button>
+        <button id="saveInvigilators" class="rounded-xl bg-brand-600 text-white py-2 font-semibold hover:bg-brand-700">Save Lecturers</button>
+      </div>
+      <p id="editMsg" class="text-sm"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+  const createForm = document.getElementById("createSessionForm");
+  const createMsg = document.getElementById("createMsg");
+  const sessionSelect = document.getElementById("sessionSelect");
+  const editPanel = document.getElementById("editPanel");
+  const editPapers = document.getElementById("editPapers");
+  const editMsg = document.getElementById("editMsg");
+  const savePapersBtn = document.getElementById("savePapers");
+  const saveInvigilatorsBtn = document.getElementById("saveInvigilators");
+  const hallSelect = document.getElementById("hallId");
+  const venueInput = document.getElementById("venue");
+
+  function parsePapers(raw) {
+    return raw.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+      const parts = line.split("|");
+      if (parts.length > 1) {
+        return { paper_code: parts[0].trim(), paper_title: parts.slice(1).join("|").trim() };
+      }
+      return { paper_title: line };
+    }).filter((p) => p.paper_title);
+  }
+
+  function toIsoUtc(localDateTime) {
+    if (!localDateTime) return null;
+    const d = new Date(localDateTime);
+    return d.toISOString();
+  }
+
+  function selectedIds(className) {
+    return Array.from(document.querySelectorAll(`.${className}:checked`)).map((el) => Number(el.value));
+  }
+
+  function setMessage(el, text, ok=false) {
+    el.textContent = text;
+    el.className = ok ? "text-sm mt-3 text-emerald-700" : "text-sm mt-3 text-rose-700";
+  }
+
+  hallSelect?.addEventListener("change", () => {
+    const selected = hallSelect.options[hallSelect.selectedIndex];
+    venueInput.value = selected && selected.value ? (selected.dataset.name || "") : "";
+  });
+
+  createForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      session_name: document.getElementById("sessionName").value.trim(),
+      course_code: document.getElementById("courseCode").value.trim(),
+      hall_id: Number(document.getElementById("hallId").value),
+      expected_students: Number(document.getElementById("expectedStudents").value),
+      allow_file_upload: document.getElementById("allowFileUpload").checked,
+      venue: document.getElementById("venue").value.trim(),
+      start_time: toIsoUtc(document.getElementById("startTime").value),
+      end_time: toIsoUtc(document.getElementById("endTime").value),
+      papers: parsePapers(document.getElementById("createPapers").value),
+      invigilator_ids: selectedIds("create-inv")
+    };
+
+    const res = await fetch("/admin/sessions/setup/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setMessage(createMsg, data.error || "Failed to create session");
+      return;
+    }
+    setMessage(createMsg, "Session created successfully. Reloading...", true);
+    setTimeout(() => window.location.reload(), 800);
+  });
+
+  sessionSelect.addEventListener("change", async () => {
+    const sessionId = sessionSelect.value;
+    if (!sessionId) {
+      editPanel.classList.add("hidden");
+      return;
+    }
+    const res = await fetch(`/admin/sessions/${sessionId}/setup-data`);
+    const data = await res.json();
+    if (!res.ok) {
+      setMessage(editMsg, data.error || "Failed to load session");
+      return;
+    }
+
+    editPapers.value = (data.papers || []).map((p) => {
+      return p.paper_code ? `${p.paper_code}|${p.paper_title}` : p.paper_title;
+    }).join("\n");
+
+    const assigned = new Set((data.invigilators || []).map((i) => Number(i.invigilator_id)));
+    document.querySelectorAll(".edit-inv").forEach((el) => {
+      el.checked = assigned.has(Number(el.value));
+    });
+    editMsg.textContent = "";
+    editPanel.classList.remove("hidden");
+  });
+
+  savePapersBtn.addEventListener("click", async () => {
+    const sessionId = sessionSelect.value;
+    if (!sessionId) return;
+    const res = await fetch(`/admin/sessions/${sessionId}/setup-data/papers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ papers: parsePapers(editPapers.value) })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setMessage(editMsg, data.error || "Failed to save papers");
+      return;
+    }
+    setMessage(editMsg, "Papers saved", true);
+  });
+
+  saveInvigilatorsBtn.addEventListener("click", async () => {
+    const sessionId = sessionSelect.value;
+    if (!sessionId) return;
+    const res = await fetch(`/admin/sessions/${sessionId}/setup-data/invigilators`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invigilator_ids: selectedIds("edit-inv") })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setMessage(editMsg, data.error || "Failed to save lecturers");
+      return;
+    }
+    setMessage(editMsg, "Lecturers saved", true);
+  });
+</script>
+
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "layout_auth.html" %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+  <div class="text-xl font-semibold">Page not found</div>
+  <p class="mt-2 text-sm text-slate-600">
+    The page you requested does not exist.
+  </p>
+  <a href="{{ url_for('web.login_page') }}"
+     class="inline-block mt-6 rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-semibold hover:bg-brand-700 transition">
+    Go to Login
+  </a>
+</div>
+{% endblock %}

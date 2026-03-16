@@ -1,0 +1,112 @@
+{% extends "layout.html" %}
+{% set title = "Attendance Logs" %}
+{% block content %}
+
+<div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+  <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+    <div>
+      <div class="text-sm font-semibold">Exam Attendance Logs</div>
+      <div class="text-sm text-slate-600 mt-1">Live verification attempts from the database.</div>
+      <div class="text-xs text-slate-500 mt-2">Showing {{ rows|length }} record(s).</div>
+    </div>
+  </div>
+
+  <form method="GET" action="{{ url_for('web.attendance_logs_page') }}" class="mt-5 grid grid-cols-1 md:grid-cols-4 gap-2">
+    <div class="md:col-span-1">
+      <label class="text-xs text-slate-500">Session</label>
+      <select name="session_id" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="">All sessions</option>
+        {% for s in sessions %}
+        <option value="{{ s.id }}" {% if filters.session_id == s.id %}selected{% endif %}>
+          {{ s.course_code or s.session_name }}{% if s.start_time %} ({{ s.start_time.strftime('%Y-%m-%d %H:%M') }}){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="md:col-span-1">
+      <label class="text-xs text-slate-500">Outcome</label>
+      <select name="outcome" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="">All outcomes</option>
+        <option value="SUCCESS" {% if filters.outcome == 'SUCCESS' %}selected{% endif %}>SUCCESS</option>
+        <option value="FAIL" {% if filters.outcome == 'FAIL' %}selected{% endif %}>FAIL</option>
+      </select>
+    </div>
+
+    <div class="md:col-span-1">
+      <label class="text-xs text-slate-500">Search</label>
+      <input name="q" value="{{ filters.q or '' }}" placeholder="Student ID, name, course..."
+             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+    </div>
+
+    <div class="md:col-span-1">
+      <label class="text-xs text-slate-500">Limit</label>
+      <input name="limit" type="number" min="1" max="2000" value="{{ filters.limit or 500 }}"
+             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+    </div>
+
+    <div class="md:col-span-4 flex gap-2">
+      <button class="rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-semibold hover:bg-brand-700" type="submit">
+        Apply Filters
+      </button>
+      <a href="{{ url_for('web.attendance_logs_page') }}"
+         class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50">
+        Clear
+      </a>
+    </div>
+  </form>
+
+  <div class="mt-5 overflow-x-auto rounded-xl border border-slate-200">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+        <tr>
+          <th class="text-left py-3 px-3">Time</th>
+          <th class="text-left py-3 px-3">Session</th>
+          <th class="text-left py-3 px-3">Student</th>
+          <th class="text-left py-3 px-3">Claimed ID</th>
+          <th class="text-left py-3 px-3">Outcome</th>
+          <th class="text-left py-3 px-3">Confidence</th>
+          <th class="text-left py-3 px-3">Reason</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y bg-white">
+        {% if rows and rows|length > 0 %}
+          {% for r in rows %}
+          {% set student_name = ((r.first_name or '') ~ ' ' ~ (r.last_name or ''))|trim %}
+          <tr>
+            <td class="py-3 px-3 whitespace-nowrap">
+              {{ r.timestamp.strftime('%Y-%m-%d %H:%M:%S') if r.timestamp else 'N/A' }}
+            </td>
+            <td class="py-3 px-3">
+              <div class="font-medium">{{ r.course_code or r.session_name or 'N/A' }}</div>
+              <div class="text-xs text-slate-500">{{ r.venue or '' }}</div>
+            </td>
+            <td class="py-3 px-3">
+              <div class="font-medium">{{ student_name or 'Unknown Student' }}</div>
+              <div class="text-xs text-slate-500">{{ r.index_no or 'N/A' }}</div>
+            </td>
+            <td class="py-3 px-3">{{ r.claimed_student_id or 'N/A' }}</td>
+            <td class="py-3 px-3">
+              {% if r.outcome == 'SUCCESS' %}
+              <span class="px-2 py-1 rounded-full text-xs bg-emerald-50 text-emerald-700">SUCCESS</span>
+              {% else %}
+              <span class="px-2 py-1 rounded-full text-xs bg-rose-50 text-rose-700">{{ r.outcome or 'FAIL' }}</span>
+              {% endif %}
+            </td>
+            <td class="py-3 px-3">{{ '%.2f'|format(r.confidence) if r.confidence is not none else 'N/A' }}</td>
+            <td class="py-3 px-3">{{ r.reason or '—' }}</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="7" class="py-8 text-center text-slate-500">
+              No attendance logs found for the selected filters.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

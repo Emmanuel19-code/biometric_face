@@ -1,0 +1,502 @@
+{% extends "layout.html" %}
+{% set title = "Add Lecturer" %}
+{% block content %}
+
+<div class="grid lg:grid-cols-3 gap-4">
+  <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="text-sm font-semibold">Create Lecturer Account</div>
+        <div class="text-sm text-slate-600 mt-1">
+          Admin-only: create lecturer account and auto-generate temporary password.
+        </div>
+      </div>
+
+      <span id="statusBadge"
+            class="hidden px-3 py-2 rounded-full text-xs bg-slate-100 text-slate-700">
+        Ready
+      </span>
+    </div>
+
+    <form id="invForm" class="mt-5 grid md:grid-cols-2 gap-4" novalidate>
+      <div class="md:col-span-2">
+        <label class="text-sm font-medium">Full Name <span class="text-rose-600">*</span></label>
+        <input id="fullName" name="full_name" required
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. Nana Kofi Mensah">
+        <p class="mt-1 text-xs text-rose-600 hidden" id="errName">Full name is required.</p>
+      </div>
+
+      <div class="md:col-span-2">
+        <label class="text-sm font-medium">Email (Username) <span class="text-rose-600">*</span></label>
+        <input id="email" name="email" type="email" required
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="lecturer@upsa.edu.gh">
+        <p class="mt-1 text-xs text-rose-600 hidden" id="errEmail">Valid email is required.</p>
+      </div>
+
+      <div class="md:col-span-2 rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500 mb-2">Lecturer Photo (Optional)</div>
+        <div class="flex flex-col sm:flex-row gap-3 items-start">
+          <div class="w-24 h-24 rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+            <img id="createPhotoPreview" alt="Lecturer photo" class="w-full h-full object-cover hidden">
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" id="btnCreateOpenCamera"
+                    class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50">
+              Open Camera
+            </button>
+            <button type="button" id="btnCreateCapture"
+                    class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50">
+              Capture
+            </button>
+            <button type="button" id="btnCreateClearPhoto"
+                    class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50">
+              Clear
+            </button>
+            <label class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50 cursor-pointer">
+              Upload
+              <input id="createPhotoUpload" type="file" accept="image/*" class="hidden">
+            </label>
+          </div>
+        </div>
+        <video id="createCamera" class="mt-3 hidden w-full max-w-sm rounded-xl border border-slate-200" autoplay playsinline muted></video>
+      </div>
+
+      <div class="md:col-span-2 flex flex-col sm:flex-row gap-2 pt-2">
+        <button type="button" id="btnReset"
+                class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">
+          Reset
+        </button>
+
+        <button type="submit"
+                class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-3 font-semibold hover:bg-brand-700 transition">
+          Create Lecturer
+        </button>
+      </div>
+
+      <p class="md:col-span-2 text-xs text-slate-500 mt-1">
+        A temporary password is generated automatically and must be changed on first login.
+      </p>
+    </form>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="text-sm font-semibold">Admin Notes</div>
+    <div class="text-sm text-slate-600 mt-2">
+      You can edit lecturer details, reset passwords, and capture/update lecturer photos.
+    </div>
+
+    <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div class="text-xs text-slate-500">Current Lecturers</div>
+      <div id="lecturersPanel" class="mt-2 max-h-80 overflow-auto divide-y">
+        {% for inv in lecturers %}
+        <div class="py-2 text-sm">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full border border-slate-200 overflow-hidden bg-white">
+              {% if inv.profile_photo %}
+              <img src="{{ inv.profile_photo }}" alt="{{ inv.full_name }}" class="w-full h-full object-cover">
+              {% endif %}
+            </div>
+            <div class="min-w-0">
+              <div class="font-semibold truncate">{{ inv.full_name }}</div>
+              <div class="text-xs text-slate-500 truncate">{{ inv.email }} - {{ inv.username }}</div>
+            </div>
+          </div>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <button
+              class="edit-lecturer rounded-lg border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
+              data-id="{{ inv.id }}"
+              data-name="{{ inv.full_name }}"
+              data-email="{{ inv.email }}"
+              data-username="{{ inv.username }}"
+              data-photo="{{ inv.profile_photo or '' }}"
+            >
+              Edit Details
+            </button>
+            <button
+              class="reset-lecturer-password rounded-lg border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
+              data-id="{{ inv.id }}"
+              data-name="{{ inv.full_name }}"
+            >
+              Reset Password
+            </button>
+          </div>
+        </div>
+        {% else %}
+        <div class="py-2 text-sm text-slate-500">No lecturers yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="editLecturerModal" class="hidden fixed inset-0 z-50">
+  <div id="editLecturerOverlay" class="absolute inset-0 bg-black/40"></div>
+  <div class="relative min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden">
+      <div class="p-4 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <div class="text-sm font-semibold">Edit Lecturer</div>
+          <div class="text-xs text-slate-500 mt-1">Update details and photo.</div>
+        </div>
+        <button id="btnCloseEditModal" class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">Close</button>
+      </div>
+      <form id="editLecturerForm" class="p-4 grid grid-cols-1 gap-3">
+        <input id="editLecturerId" type="hidden">
+        <div>
+          <label class="text-xs text-slate-500">Full Name</label>
+          <input id="editLecturerName" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Email</label>
+          <input id="editLecturerEmail" type="email" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Username</label>
+          <input id="editLecturerUsername" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+        </div>
+        <div class="rounded-xl border border-slate-200 p-3">
+          <div class="text-xs text-slate-500 mb-2">Profile Photo</div>
+          <div class="flex gap-3 items-start flex-col sm:flex-row">
+            <div class="w-24 h-24 rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+              <img id="editLecturerPhotoPreview" alt="Profile photo" class="w-full h-full object-cover hidden">
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" id="btnEditOpenCamera" class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50">Open Camera</button>
+              <button type="button" id="btnEditCapture" class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50">Capture</button>
+              <button type="button" id="btnEditClearPhoto" class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50">Clear</button>
+              <label class="rounded-xl border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50 cursor-pointer">
+                Upload
+                <input id="editPhotoUpload" type="file" accept="image/*" class="hidden">
+              </label>
+            </div>
+          </div>
+          <video id="editCamera" class="mt-3 hidden w-full rounded-xl border border-slate-200" autoplay playsinline muted></video>
+        </div>
+        <div id="editLecturerMsg" class="text-xs text-slate-500"></div>
+        <button type="submit" class="rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-semibold hover:bg-brand-700">Save Changes</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  const form = document.getElementById("invForm");
+  const badge = document.getElementById("statusBadge");
+  const btnReset = document.getElementById("btnReset");
+  const lecturersPanel = document.getElementById("lecturersPanel");
+  const fullName = document.getElementById("fullName");
+  const email = document.getElementById("email");
+  const errName = document.getElementById("errName");
+  const errEmail = document.getElementById("errEmail");
+
+  const createPhotoPreview = document.getElementById("createPhotoPreview");
+  const createPhotoUpload = document.getElementById("createPhotoUpload");
+  const createCamera = document.getElementById("createCamera");
+  const btnCreateOpenCamera = document.getElementById("btnCreateOpenCamera");
+  const btnCreateCapture = document.getElementById("btnCreateCapture");
+  const btnCreateClearPhoto = document.getElementById("btnCreateClearPhoto");
+
+  const editModal = document.getElementById("editLecturerModal");
+  const editOverlay = document.getElementById("editLecturerOverlay");
+  const btnCloseEditModal = document.getElementById("btnCloseEditModal");
+  const editForm = document.getElementById("editLecturerForm");
+  const editLecturerId = document.getElementById("editLecturerId");
+  const editLecturerName = document.getElementById("editLecturerName");
+  const editLecturerEmail = document.getElementById("editLecturerEmail");
+  const editLecturerUsername = document.getElementById("editLecturerUsername");
+  const editLecturerPhotoPreview = document.getElementById("editLecturerPhotoPreview");
+  const editPhotoUpload = document.getElementById("editPhotoUpload");
+  const editCamera = document.getElementById("editCamera");
+  const btnEditOpenCamera = document.getElementById("btnEditOpenCamera");
+  const btnEditCapture = document.getElementById("btnEditCapture");
+  const btnEditClearPhoto = document.getElementById("btnEditClearPhoto");
+  const editLecturerMsg = document.getElementById("editLecturerMsg");
+
+  let createPhotoData = "";
+  let editPhotoData = "";
+  let createStream = null;
+  let editStream = null;
+
+  function setBadge(type, text) {
+    badge.classList.remove("hidden");
+    badge.className = "px-3 py-2 rounded-full text-xs";
+    if (type === "ok") badge.classList.add("bg-emerald-50", "text-emerald-700");
+    else if (type === "warn") badge.classList.add("bg-amber-50", "text-amber-700");
+    else if (type === "bad") badge.classList.add("bg-rose-50", "text-rose-700");
+    else badge.classList.add("bg-slate-100", "text-slate-700");
+    badge.textContent = text;
+  }
+
+  function setEditMsg(type, text) {
+    editLecturerMsg.className = "text-xs";
+    if (type === "ok") editLecturerMsg.classList.add("text-emerald-700");
+    else if (type === "bad") editLecturerMsg.classList.add("text-rose-700");
+    else editLecturerMsg.classList.add("text-slate-500");
+    editLecturerMsg.textContent = text;
+  }
+
+  function validate() {
+    let ok = true;
+    const nameOk = fullName.value.trim().length > 0;
+    errName.classList.toggle("hidden", nameOk);
+    ok = ok && nameOk;
+    const emailOk = email.value.trim().length > 0 && email.checkValidity();
+    errEmail.classList.toggle("hidden", emailOk);
+    ok = ok && emailOk;
+    return ok;
+  }
+
+  function setPreview(imgEl, dataUrl) {
+    if (!imgEl) return;
+    if (dataUrl) {
+      imgEl.src = dataUrl;
+      imgEl.classList.remove("hidden");
+    } else {
+      imgEl.removeAttribute("src");
+      imgEl.classList.add("hidden");
+    }
+  }
+
+  function stopStream(stream) {
+    if (!stream) return;
+    stream.getTracks().forEach((t) => t.stop());
+  }
+
+  async function openCamera(videoEl, target) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      videoEl.srcObject = stream;
+      videoEl.classList.remove("hidden");
+      if (target === "create") {
+        stopStream(createStream);
+        createStream = stream;
+      } else {
+        stopStream(editStream);
+        editStream = stream;
+      }
+    } catch (_) {
+      setBadge("bad", "Camera access denied or unavailable.");
+      setEditMsg("bad", "Camera access denied or unavailable.");
+    }
+  }
+
+  function captureFromVideo(videoEl) {
+    if (!videoEl || !videoEl.videoWidth || !videoEl.videoHeight) return "";
+    const canvas = document.createElement("canvas");
+    canvas.width = videoEl.videoWidth;
+    canvas.height = videoEl.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.92);
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!validate()) {
+      setBadge("bad", "Fix the highlighted fields.");
+      return;
+    }
+
+    const emailValue = email.value.trim().toLowerCase();
+    const payload = {
+      full_name: fullName.value.trim(),
+      email: emailValue,
+      username: emailValue,
+      profile_photo: createPhotoData || null
+    };
+
+    fetch("{{ url_for('web.create_lecturer_web') }}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Failed to create lecturer");
+        const tempPassword = data.temporary_password || "";
+        if (tempPassword) {
+          setBadge("ok", `Lecturer created. Temporary password: ${tempPassword}`);
+        } else {
+          setBadge("ok", "Lecturer created.");
+        }
+        form.reset();
+        createPhotoData = "";
+        setPreview(createPhotoPreview, "");
+        window.setTimeout(() => window.location.reload(), 2000);
+      })
+      .catch((err) => setBadge("bad", err.message || "Failed to create lecturer."));
+  });
+
+  btnReset.addEventListener("click", () => {
+    form.reset();
+    createPhotoData = "";
+    setPreview(createPhotoPreview, "");
+    errName.classList.add("hidden");
+    errEmail.classList.add("hidden");
+    setBadge("neutral", "Form reset.");
+  });
+
+  btnCreateOpenCamera.addEventListener("click", () => openCamera(createCamera, "create"));
+  btnCreateCapture.addEventListener("click", () => {
+    const dataUrl = captureFromVideo(createCamera);
+    if (!dataUrl) {
+      setBadge("bad", "Open camera before capture.");
+      return;
+    }
+    createPhotoData = dataUrl;
+    setPreview(createPhotoPreview, dataUrl);
+    setBadge("ok", "Photo captured.");
+  });
+  btnCreateClearPhoto.addEventListener("click", () => {
+    createPhotoData = "";
+    setPreview(createPhotoPreview, "");
+  });
+  createPhotoUpload.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    createPhotoData = dataUrl;
+    setPreview(createPhotoPreview, dataUrl);
+  });
+
+  function openEditModal(data) {
+    editLecturerId.value = String(data.id || "");
+    editLecturerName.value = data.name || "";
+    editLecturerEmail.value = data.email || "";
+    editLecturerUsername.value = data.username || "";
+    editPhotoData = data.photo || "";
+    setPreview(editLecturerPhotoPreview, editPhotoData);
+    setEditMsg("neutral", "");
+    editModal.classList.remove("hidden");
+  }
+
+  function closeEditModal() {
+    editModal.classList.add("hidden");
+    stopStream(editStream);
+    editStream = null;
+    editCamera.classList.add("hidden");
+    editCamera.srcObject = null;
+  }
+
+  lecturersPanel?.addEventListener("click", async (e) => {
+    const resetBtn = e.target.closest(".reset-lecturer-password");
+    if (resetBtn) {
+      const lecturerId = Number(resetBtn.dataset.id || 0);
+      const lecturerName = resetBtn.dataset.name || "Lecturer";
+      if (!lecturerId) return;
+      const promptValue = window.prompt(
+        `Set a new password for ${lecturerName}. Leave empty to auto-generate a temporary password.`
+      );
+      if (promptValue === null) return;
+      const payload = {};
+      const customPassword = String(promptValue || "").trim();
+      if (customPassword) payload.new_password = customPassword;
+      resetBtn.disabled = true;
+      try {
+        const res = await fetch(`/admin/lecturers/${encodeURIComponent(lecturerId)}/reset-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Failed to reset password");
+        if (data.temporary_password) {
+          setBadge("ok", `Password reset for ${lecturerName}. Temporary password: ${data.temporary_password}`);
+        } else {
+          setBadge("ok", `Password updated for ${lecturerName}. User must change it at next login.`);
+        }
+      } catch (err) {
+        setBadge("bad", err.message || "Failed to reset password.");
+      } finally {
+        resetBtn.disabled = false;
+      }
+      return;
+    }
+
+    const editBtn = e.target.closest(".edit-lecturer");
+    if (editBtn) {
+      openEditModal({
+        id: editBtn.dataset.id,
+        name: editBtn.dataset.name,
+        email: editBtn.dataset.email,
+        username: editBtn.dataset.username,
+        photo: editBtn.dataset.photo
+      });
+    }
+  });
+
+  btnCloseEditModal?.addEventListener("click", closeEditModal);
+  editOverlay?.addEventListener("click", closeEditModal);
+
+  btnEditOpenCamera?.addEventListener("click", () => openCamera(editCamera, "edit"));
+  btnEditCapture?.addEventListener("click", () => {
+    const dataUrl = captureFromVideo(editCamera);
+    if (!dataUrl) {
+      setEditMsg("bad", "Open camera before capture.");
+      return;
+    }
+    editPhotoData = dataUrl;
+    setPreview(editLecturerPhotoPreview, dataUrl);
+    setEditMsg("ok", "Photo captured.");
+  });
+  btnEditClearPhoto?.addEventListener("click", () => {
+    editPhotoData = "";
+    setPreview(editLecturerPhotoPreview, "");
+  });
+  editPhotoUpload?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    editPhotoData = dataUrl;
+    setPreview(editLecturerPhotoPreview, dataUrl);
+  });
+
+  editForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const lecturerId = Number(editLecturerId.value || 0);
+    if (!lecturerId) return;
+    const payload = {
+      full_name: editLecturerName.value.trim(),
+      email: editLecturerEmail.value.trim().toLowerCase(),
+      username: editLecturerUsername.value.trim().toLowerCase(),
+      profile_photo: editPhotoData || null
+    };
+    if (!payload.full_name || !payload.email || !payload.username) {
+      setEditMsg("bad", "Name, email, and username are required.");
+      return;
+    }
+    setEditMsg("neutral", "Saving...");
+    try {
+      const res = await fetch(`/admin/lecturers/${encodeURIComponent(lecturerId)}/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update lecturer");
+      setEditMsg("ok", "Lecturer updated.");
+      setBadge("ok", "Lecturer details updated successfully.");
+      window.setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      setEditMsg("bad", err.message || "Failed to update lecturer.");
+    }
+  });
+
+  window.addEventListener("beforeunload", () => {
+    stopStream(createStream);
+    stopStream(editStream);
+  });
+</script>
+
+{% endblock %}

@@ -1,0 +1,148 @@
+{% extends "layout.html" %}
+{% set title = "All Sessions" %}
+{% block content %}
+
+<div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+      <div class="text-sm font-semibold">All Exam Sessions</div>
+      <div class="text-xs text-slate-500 mt-1">Every session created in the system, newest first.</div>
+    </div>
+    <div class="text-xs px-3 py-2 rounded-full bg-slate-100 text-slate-700">
+      Total: {{ sessions|length }}
+    </div>
+  </div>
+  <p id="sessionActionMsg" class="text-sm mt-3 hidden"></p>
+
+  {% if sessions %}
+  <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+    <table class="w-full text-sm">
+      <thead class="bg-white text-slate-500 border-b">
+        <tr>
+          <th class="text-left py-3 px-3">Session</th>
+          <th class="text-left py-3 px-3">Course</th>
+          <th class="text-left py-3 px-3">Venue</th>
+          <th class="text-left py-3 px-3">Start</th>
+          <th class="text-left py-3 px-3">End</th>
+          <th class="text-left py-3 px-3">Registered</th>
+          <th class="text-left py-3 px-3">Verified</th>
+          <th class="text-left py-3 px-3">Invigilators</th>
+          <th class="text-left py-3 px-3">Status</th>
+          {% if session.get('role') == 'super_admin' %}
+          <th class="text-left py-3 px-3">Action</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody class="divide-y bg-white">
+        {% for s in sessions %}
+        <tr class="hover:bg-slate-50">
+          <td class="py-3 px-3 font-medium">{{ s.session_name }}</td>
+          <td class="py-3 px-3">{{ s.course_code or "N/A" }}</td>
+          <td class="py-3 px-3">{{ s.venue or "N/A" }}</td>
+          <td class="py-3 px-3 whitespace-nowrap">{{ s.start_time.strftime('%Y-%m-%d %H:%M') if s.start_time else "N/A" }}</td>
+          <td class="py-3 px-3 whitespace-nowrap">{{ s.end_time.strftime('%Y-%m-%d %H:%M') if s.end_time else "N/A" }}</td>
+          <td class="py-3 px-3">{{ s.registered_count }}</td>
+          <td class="py-3 px-3">{{ s.verified_count }}</td>
+          <td class="py-3 px-3">{{ s.invigilator_count }}</td>
+          <td class="py-3 px-3">
+            {% if s.status == "Inactive" %}
+              <span class="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Inactive</span>
+            {% elif s.status == "Ended" %}
+              <span class="px-2 py-1 rounded-full text-xs bg-rose-50 text-rose-700">Ended</span>
+            {% elif s.status == "Upcoming" %}
+              <span class="px-2 py-1 rounded-full text-xs bg-amber-50 text-amber-700">Upcoming</span>
+            {% else %}
+              <span class="px-2 py-1 rounded-full text-xs bg-emerald-50 text-emerald-700">Live</span>
+            {% endif %}
+          </td>
+          {% if session.get('role') == 'super_admin' %}
+          <td class="py-3 px-3">
+            {% if s.is_active %}
+            <button
+              class="session-action px-3 py-2 rounded-xl text-xs font-semibold border border-rose-200 text-rose-700 hover:bg-rose-50"
+              data-action="end"
+              data-session-id="{{ s.id }}"
+            >
+              End Session
+            </button>
+            {% else %}
+            <button
+              class="session-action px-3 py-2 rounded-xl text-xs font-semibold border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+              data-action="start"
+              data-session-id="{{ s.id }}"
+            >
+              Start Session
+            </button>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-slate-600 text-sm">
+    No exam sessions have been created yet.
+  </div>
+  {% endif %}
+</div>
+
+{% if session.get('role') == 'super_admin' %}
+<script>
+  const actionMsg = document.getElementById("sessionActionMsg");
+
+  function setActionMsg(text, ok = false) {
+    actionMsg.classList.remove("hidden");
+    actionMsg.className = ok ? "text-sm mt-3 text-emerald-700" : "text-sm mt-3 text-rose-700";
+    actionMsg.textContent = text;
+  }
+
+  async function triggerSessionAction(sessionId, action) {
+    const response = await fetch(`/admin/sessions/${sessionId}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    const raw = await response.text();
+    let payload = {};
+    try {
+      payload = raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      payload = {};
+    }
+    if (!response.ok) {
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+      if (response.status === 404) {
+        throw new Error(`Start/End endpoint not found (404). Restart the server to load latest routes.`);
+      }
+      throw new Error(raw || `Failed to ${action} session (HTTP ${response.status})`);
+    }
+    return payload;
+  }
+
+  document.querySelectorAll(".session-action").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const sessionId = btn.dataset.sessionId;
+      const action = btn.dataset.action;
+      const label = action === "start" ? "start" : "end";
+      const confirmed = window.confirm(`Are you sure you want to ${label} this session?`);
+      if (!confirmed) return;
+
+      btn.disabled = true;
+      try {
+        await triggerSessionAction(sessionId, action);
+        setActionMsg(`Session ${action}ed successfully. Reloading...`, true);
+        setTimeout(() => window.location.reload(), 500);
+      } catch (error) {
+        setActionMsg(error.message || `Failed to ${action} session`);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+</script>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,711 @@
+{% extends "layout.html" %}
+{% set title = "Students Directory" %}
+{% block content %}
+
+<div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+  <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+    <div>
+      <div class="text-sm font-semibold">Registered Students</div>
+      <div class="text-sm text-slate-600 mt-1">
+        Grouped by <span class="font-semibold">Department -> Level</span> from live database records.
+      </div>
+    </div>
+
+    <div class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+      <input id="searchBox"
+             class="rounded-xl border border-slate-200 px-4 py-2 text-sm w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+             placeholder="Search name / index / programme">
+      <button id="btnExport"
+              class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50 w-full sm:w-auto">
+        Export CSV
+      </button>
+    </div>
+  </div>
+
+  <div class="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div class="rounded-2xl border border-slate-200 p-4">
+      <div class="text-xs text-slate-500">Sort</div>
+      <select id="sortBy"
+              class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+        <option value="name">Name (A-Z)</option>
+        <option value="index">Index Number</option>
+        <option value="programme">Programme</option>
+      </select>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 p-4">
+      <div class="text-xs text-slate-500">Quick Filter (Level)</div>
+      <div class="mt-2 flex flex-wrap gap-2">
+        <button type="button" data-filter="all"
+                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">All</button>
+        <button type="button" data-filter="100"
+                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">100</button>
+        <button type="button" data-filter="200"
+                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">200</button>
+        <button type="button" data-filter="300"
+                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">300</button>
+        <button type="button" data-filter="400"
+                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">400</button>
+        <button type="button" data-filter="500"
+                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">500</button>
+        <button type="button" data-filter="600"
+                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">600</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div class="text-sm text-slate-600">
+      Showing <span class="font-semibold" id="countShown">0</span> students
+    </div>
+    <div class="text-xs text-slate-500">
+      Tip: Open a department, then pick a level to narrow the student list.
+    </div>
+  </div>
+
+  <div class="mt-4 space-y-3" id="groupsRoot"></div>
+</div>
+
+<div id="studentModal" class="hidden fixed inset-0 z-50">
+  <div id="studentModalOverlay" class="absolute inset-0 bg-black/40"></div>
+  <div class="relative min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden">
+      <div class="p-4 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <div class="text-sm font-semibold">Student Details</div>
+          <div class="text-xs text-slate-500 mt-1">Selected student profile.</div>
+        </div>
+        <button id="studentModalClose"
+                class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold hover:bg-slate-50">
+          Close
+        </button>
+      </div>
+
+      <div class="p-4 space-y-2 text-sm">
+        <div class="flex justify-center pb-2">
+          <div class="w-28 h-28 rounded-2xl border border-slate-200 overflow-hidden bg-slate-50">
+            <img id="sdPhoto" alt="Student photo" class="w-full h-full object-cover hidden">
+          </div>
+        </div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Name</span><span id="sdName" class="text-right">—</span></div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Index No.</span><span id="sdIndex" class="text-right">—</span></div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Department</span><span id="sdDepartment" class="text-right">—</span></div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Programme</span><span id="sdProgramme" class="text-right">—</span></div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Level</span><span id="sdLevel" class="text-right">—</span></div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Email</span><span id="sdEmail" class="text-right">—</span></div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Phone</span><span id="sdPhone" class="text-right">—</span></div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Biometric</span><span id="sdBiometric" class="text-right">—</span></div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Biometric Data Size</span><span id="sdBiometricSize" class="text-right">—</span></div>
+        <div class="flex justify-between gap-4"><span class="text-slate-500">Status</span><span id="sdStatus" class="text-right">—</span></div>
+      </div>
+
+      <div class="p-4 border-t border-slate-200">
+        <div class="flex flex-col sm:flex-row gap-2">
+          <button id="btnEditStudent"
+                  class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-semibold hover:bg-brand-700">
+            Update Student
+          </button>
+          <button id="btnResetStudentPassword"
+                  class="w-full sm:w-auto rounded-xl border border-amber-300 text-amber-700 px-4 py-2 text-sm font-semibold hover:bg-amber-50">
+            Reset Password
+          </button>
+          <button id="btnCancelEditStudent"
+                  class="hidden w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50">
+            Cancel
+          </button>
+        </div>
+
+        <form id="studentEditForm" class="hidden mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input id="editFirstName" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="First name">
+          <input id="editLastName" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Last name">
+          <input id="editEmail" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Email">
+          <input id="editPhone" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Phone">
+          <input id="editDepartment" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Department">
+          <input id="editCourse" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Programme">
+          <input id="editLevel" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Level (e.g. 400)">
+          <label class="flex items-center gap-2 px-1 text-sm text-slate-600">
+            <input id="editIsActive" type="checkbox" class="rounded border-slate-300">
+            Active student
+          </label>
+          <div class="sm:col-span-2 flex flex-col sm:flex-row gap-2">
+            <button id="btnSaveStudent"
+                    class="w-full sm:w-auto rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700"
+                    type="submit">
+              Save Changes
+            </button>
+          </div>
+        </form>
+        <div id="studentEditMsg" class="mt-2 text-xs text-slate-500"></div>
+        <div id="studentPasswordMsg" class="mt-2 text-xs text-slate-500"></div>
+
+        <div class="mt-4 border-t border-slate-100 pt-3">
+          <div class="text-xs text-slate-500 mb-2">Update Biometric Data</div>
+          <input id="biometricFiles" type="file" accept="image/*" multiple
+                 class="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-200 file:bg-white file:px-3 file:py-2 file:text-xs">
+          <div class="mt-2 flex flex-col sm:flex-row gap-2">
+            <button id="btnSaveBiometric"
+                    class="w-full sm:w-auto rounded-xl bg-indigo-600 text-white px-4 py-2 text-sm font-semibold hover:bg-indigo-700"
+                    type="button">
+              Update Biometric
+            </button>
+          </div>
+          <div id="biometricMsg" class="mt-2 text-xs text-slate-500"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let students = [];
+  let activeLevelFilter = "all";
+  let selectedStudentDbId = null;
+  let selectedStudentIndex = null;
+  const studentMap = new Map();
+
+  const groupsRoot = document.getElementById("groupsRoot");
+  const sortBy = document.getElementById("sortBy");
+  const searchBox = document.getElementById("searchBox");
+  const countShown = document.getElementById("countShown");
+  const btnExport = document.getElementById("btnExport");
+  const studentModal = document.getElementById("studentModal");
+  const studentModalOverlay = document.getElementById("studentModalOverlay");
+  const studentModalClose = document.getElementById("studentModalClose");
+  const sdPhoto = document.getElementById("sdPhoto");
+  const sdName = document.getElementById("sdName");
+  const sdIndex = document.getElementById("sdIndex");
+  const sdDepartment = document.getElementById("sdDepartment");
+  const sdProgramme = document.getElementById("sdProgramme");
+  const sdLevel = document.getElementById("sdLevel");
+  const sdEmail = document.getElementById("sdEmail");
+  const sdPhone = document.getElementById("sdPhone");
+  const sdBiometric = document.getElementById("sdBiometric");
+  const sdBiometricSize = document.getElementById("sdBiometricSize");
+  const sdStatus = document.getElementById("sdStatus");
+  const btnEditStudent = document.getElementById("btnEditStudent");
+  const btnResetStudentPassword = document.getElementById("btnResetStudentPassword");
+  const btnCancelEditStudent = document.getElementById("btnCancelEditStudent");
+  const studentEditForm = document.getElementById("studentEditForm");
+  const studentEditMsg = document.getElementById("studentEditMsg");
+  const studentPasswordMsg = document.getElementById("studentPasswordMsg");
+  const editFirstName = document.getElementById("editFirstName");
+  const editLastName = document.getElementById("editLastName");
+  const editEmail = document.getElementById("editEmail");
+  const editPhone = document.getElementById("editPhone");
+  const editDepartment = document.getElementById("editDepartment");
+  const editCourse = document.getElementById("editCourse");
+  const editLevel = document.getElementById("editLevel");
+  const editIsActive = document.getElementById("editIsActive");
+  const biometricFiles = document.getElementById("biometricFiles");
+  const btnSaveBiometric = document.getElementById("btnSaveBiometric");
+  const biometricMsg = document.getElementById("biometricMsg");
+
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function normalize(s) {
+    return (s || "").toString().toLowerCase().trim();
+  }
+
+  function normalizeLevel(level) {
+    const raw = String(level || "").trim();
+    const match = raw.match(/\d{1,3}/);
+    return match ? match[0] : normalize(raw);
+  }
+
+  function sortLevelKey(level) {
+    const n = Number(normalizeLevel(level));
+    return Number.isNaN(n) ? 9999 : n;
+  }
+
+  function toViewModel(row) {
+    const firstName = row.first_name || "";
+    const lastName = row.last_name || "";
+    return {
+      id: row.id || null,
+      first_name: firstName,
+      last_name: lastName,
+      name: `${firstName} ${lastName}`.trim(),
+      index: row.student_id || "",
+      level: row.year_level || "Unknown",
+      faculty: row.department || "Unassigned Department",
+      programme: row.course || "N/A",
+      email: row.email || "—",
+      phone: row.phone || "—",
+      is_active: row.is_active !== false,
+      biometric_enrolled: row.biometric_enrolled === true,
+      biometric_blob_size: Number(row.biometric_blob_size || 0),
+      profile_photo: row.profile_photo || ""
+    };
+  }
+
+  function applyFilters(data) {
+    const q = normalize(searchBox.value);
+    return data.filter((st) => {
+      if (activeLevelFilter !== "all" && normalizeLevel(st.level) !== activeLevelFilter) return false;
+      if (!q) return true;
+      const hay = [st.name, st.index, st.programme, st.faculty, st.level].map(normalize).join(" | ");
+      return hay.includes(q);
+    });
+  }
+
+  function applySort(data) {
+    const key = sortBy.value;
+    const sorted = [...data];
+    sorted.sort((a, b) => {
+      if (key === "index") return String(a.index).localeCompare(String(b.index));
+      if (key === "programme") return String(a.programme).localeCompare(String(b.programme));
+      return String(a.name).localeCompare(String(b.name));
+    });
+    return sorted;
+  }
+
+  function groupByFacultyThenLevel(data) {
+    const map = new Map();
+    for (const st of data) {
+      const faculty = st.faculty || "Unassigned Department";
+      const level = st.level || "Unknown";
+      if (!map.has(faculty)) map.set(faculty, new Map());
+      const levelMap = map.get(faculty);
+      if (!levelMap.has(level)) levelMap.set(level, []);
+      levelMap.get(level).push(st);
+    }
+    const faculties = Array.from(map.keys()).sort((a, b) => String(a).localeCompare(String(b)));
+    return faculties.map((fac) => {
+      const levelMap = map.get(fac);
+      const levels = Array.from(levelMap.keys()).sort((a, b) => sortLevelKey(a) - sortLevelKey(b));
+      return {
+        faculty: fac,
+        levels: levels.map((lvl) => ({ level: lvl, items: levelMap.get(lvl) }))
+      };
+    });
+  }
+
+  function render() {
+    const filtered = applyFilters(students);
+    const sorted = applySort(filtered);
+    const grouped = groupByFacultyThenLevel(sorted);
+
+    countShown.textContent = String(sorted.length);
+    groupsRoot.innerHTML = "";
+
+    if (!sorted.length) {
+      groupsRoot.innerHTML = `
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-slate-600">
+          No students found in the database for this filter.
+        </div>
+      `;
+      return;
+    }
+
+    grouped.forEach((facGroup, i) => {
+      const facOpen = i === 0 ? "open" : "";
+      const facultyHtml = `
+        <details class="rounded-2xl border border-slate-200 overflow-hidden" ${facOpen}>
+          <summary class="cursor-pointer select-none bg-slate-50 px-5 py-4 flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="text-sm font-semibold truncate">${escapeHtml(facGroup.faculty)}</div>
+              <div class="text-xs text-slate-500 mt-1">${facGroup.levels.reduce((acc, l) => acc + l.items.length, 0)} student(s)</div>
+            </div>
+            <div class="text-xs text-slate-500">Expand</div>
+          </summary>
+          <div class="p-4 space-y-3" id="fac-${i}"></div>
+        </details>
+      `;
+      groupsRoot.insertAdjacentHTML("beforeend", facultyHtml);
+      const facWrap = document.getElementById(`fac-${i}`);
+
+      facGroup.levels.forEach((lvlGroup, j) => {
+        const lvlOpen = i === 0 && j === 0 ? "open" : "";
+        const levelHtml = `
+          <details class="rounded-2xl border border-slate-200 overflow-hidden" ${lvlOpen}>
+            <summary class="cursor-pointer select-none px-4 py-3 flex items-center justify-between hover:bg-slate-50">
+              <div class="min-w-0">
+                <div class="text-sm font-semibold truncate">Level ${escapeHtml(lvlGroup.level)}</div>
+                <div class="text-xs text-slate-500 mt-1">${lvlGroup.items.length} student(s)</div>
+              </div>
+              <div class="text-xs text-slate-500">Open</div>
+            </summary>
+            <div class="p-4">
+              <div class="grid grid-cols-1 sm:hidden gap-3">
+                ${lvlGroup.items.map((st) => `
+                  <button type="button" class="student-item rounded-2xl border border-slate-200 p-4 text-left hover:bg-slate-50 transition"
+                          data-student-index="${escapeHtml(st.index)}">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm font-semibold">${escapeHtml(st.name)}</div>
+                      <div class="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">Level ${escapeHtml(st.level)}</div>
+                    </div>
+                    <div class="mt-2 text-xs text-slate-500 space-y-1">
+                      <div><span class="text-slate-400">Index:</span> ${escapeHtml(st.index)}</div>
+                      <div><span class="text-slate-400">Programme:</span> ${escapeHtml(st.programme)}</div>
+                      <div><span class="text-slate-400">Biometric:</span> ${st.biometric_enrolled ? "Enrolled" : "Not enrolled"}</div>
+                    </div>
+                  </button>
+                `).join("")}
+              </div>
+
+              <div class="hidden sm:block overflow-x-auto rounded-xl border border-slate-200">
+                <table class="w-full text-sm">
+                  <thead class="bg-white text-slate-500 border-b">
+                    <tr>
+                      <th class="text-left py-3 px-3">Student</th>
+                      <th class="text-left py-3 px-3">Index No.</th>
+                      <th class="text-left py-3 px-3">Programme</th>
+                      <th class="text-left py-3 px-3 whitespace-nowrap">Biometric</th>
+                      <th class="text-left py-3 px-3 whitespace-nowrap">Level</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y bg-white">
+                    ${lvlGroup.items.map((st) => `
+                      <tr class="hover:bg-slate-50 cursor-pointer student-item" data-student-index="${escapeHtml(st.index)}">
+                        <td class="py-3 px-3">${escapeHtml(st.name)}</td>
+                        <td class="py-3 px-3 whitespace-nowrap">${escapeHtml(st.index)}</td>
+                        <td class="py-3 px-3">${escapeHtml(st.programme)}</td>
+                        <td class="py-3 px-3 whitespace-nowrap">
+                          ${
+                            st.biometric_enrolled
+                              ? '<span class="px-2 py-1 rounded-full text-xs bg-emerald-50 text-emerald-700">Enrolled</span>'
+                              : '<span class="px-2 py-1 rounded-full text-xs bg-amber-50 text-amber-700">Not Enrolled</span>'
+                          }
+                        </td>
+                        <td class="py-3 px-3 whitespace-nowrap">
+                          <span class="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">${escapeHtml(st.level)}</span>
+                        </td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+        `;
+        facWrap.insertAdjacentHTML("beforeend", levelHtml);
+      });
+    });
+
+    wireStudentItemClicks();
+  }
+
+  function openStudentModal(student) {
+    if (!student) return;
+    selectedStudentIndex = student.index || null;
+    selectedStudentDbId = student.id || null;
+    if (student.profile_photo) {
+      sdPhoto.src = student.profile_photo;
+      sdPhoto.classList.remove("hidden");
+    } else {
+      sdPhoto.removeAttribute("src");
+      sdPhoto.classList.add("hidden");
+    }
+    sdName.textContent = student.name || "—";
+    sdIndex.textContent = student.index || "—";
+    sdDepartment.textContent = student.faculty || "—";
+    sdProgramme.textContent = student.programme || "—";
+    sdLevel.textContent = student.level || "—";
+    sdEmail.textContent = student.email || "—";
+    sdPhone.textContent = student.phone || "—";
+    sdBiometric.textContent = student.biometric_enrolled ? "Enrolled" : "Not enrolled";
+    sdBiometricSize.textContent = student.biometric_blob_size > 0 ? `${student.biometric_blob_size} chars` : "0";
+    sdStatus.textContent = student.is_active ? "Active" : "Inactive";
+    studentEditForm.classList.add("hidden");
+    btnCancelEditStudent.classList.add("hidden");
+    studentEditMsg.textContent = "";
+    studentPasswordMsg.textContent = "";
+    setBiometricMsg("neutral", "");
+    if (biometricFiles) biometricFiles.value = "";
+    editFirstName.value = student.first_name || "";
+    editLastName.value = student.last_name || "";
+    editEmail.value = (student.email && student.email !== "—") ? student.email : "";
+    editPhone.value = (student.phone && student.phone !== "—") ? student.phone : "";
+    editDepartment.value = (student.faculty && student.faculty !== "Unassigned Department") ? student.faculty : "";
+    editCourse.value = (student.programme && student.programme !== "N/A") ? student.programme : "";
+    editLevel.value = student.level || "";
+    editIsActive.checked = student.is_active !== false;
+    studentModal.classList.remove("hidden");
+  }
+
+  function closeStudentModal() {
+    selectedStudentDbId = null;
+    selectedStudentIndex = null;
+    studentModal.classList.add("hidden");
+  }
+
+  function setEditMsg(type, text) {
+    studentEditMsg.className = "mt-2 text-xs";
+    if (type === "ok") {
+      studentEditMsg.classList.add("text-emerald-700");
+    } else if (type === "bad") {
+      studentEditMsg.classList.add("text-rose-700");
+    } else {
+      studentEditMsg.classList.add("text-slate-500");
+    }
+    studentEditMsg.textContent = text;
+  }
+
+  function setPasswordMsg(type, text) {
+    studentPasswordMsg.className = "mt-2 text-xs";
+    if (type === "ok") {
+      studentPasswordMsg.classList.add("text-emerald-700");
+    } else if (type === "bad") {
+      studentPasswordMsg.classList.add("text-rose-700");
+    } else {
+      studentPasswordMsg.classList.add("text-slate-500");
+    }
+    studentPasswordMsg.textContent = text;
+  }
+
+  function showEditForm() {
+    studentEditForm.classList.remove("hidden");
+    btnCancelEditStudent.classList.remove("hidden");
+    setEditMsg("neutral", "Edit fields and save changes.");
+  }
+
+  function hideEditForm() {
+    studentEditForm.classList.add("hidden");
+    btnCancelEditStudent.classList.add("hidden");
+    setEditMsg("neutral", "");
+  }
+
+  function setBiometricMsg(type, text) {
+    biometricMsg.className = "mt-2 text-xs";
+    if (type === "ok") {
+      biometricMsg.classList.add("text-emerald-700");
+    } else if (type === "bad") {
+      biometricMsg.classList.add("text-rose-700");
+    } else {
+      biometricMsg.classList.add("text-slate-500");
+    }
+    biometricMsg.textContent = text;
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function saveStudentEdits(event) {
+    event.preventDefault();
+    if (!selectedStudentIndex && !selectedStudentDbId) return;
+
+    const payload = {
+      first_name: editFirstName.value.trim(),
+      last_name: editLastName.value.trim(),
+      email: editEmail.value.trim(),
+      phone: editPhone.value.trim(),
+      department: editDepartment.value.trim(),
+      course: editCourse.value.trim(),
+      year_level: editLevel.value.trim(),
+      is_active: !!editIsActive.checked
+    };
+
+    const targetId = String(selectedStudentDbId || selectedStudentIndex || "").trim();
+    if (!targetId) return;
+
+    setEditMsg("neutral", "Saving...");
+    try {
+      const res = await fetch(`/students/update/${encodeURIComponent(targetId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 404 && !body.error) {
+          throw new Error("Update endpoint not found. Restart the server.");
+        }
+        throw new Error(body.error || "Failed to update student");
+      }
+
+      const updated = toViewModel(body.student || {});
+      studentMap.set(String(updated.index), updated);
+      students = students.map((s) => String(s.index) === String(updated.index) ? updated : s);
+      render();
+      openStudentModal(updated);
+      hideEditForm();
+      setEditMsg("ok", "Student updated successfully.");
+    } catch (err) {
+      setEditMsg("bad", err.message || "Update failed.");
+    }
+  }
+
+  async function saveBiometricEdits() {
+    if (!selectedStudentIndex && !selectedStudentDbId) return;
+    const files = Array.from(biometricFiles?.files || []);
+    if (!files.length) {
+      setBiometricMsg("bad", "Select at least one image.");
+      return;
+    }
+
+    const targetId = String(selectedStudentDbId || selectedStudentIndex || "").trim();
+    if (!targetId) return;
+
+    setBiometricMsg("neutral", "Processing biometric images...");
+    try {
+      const faceImages = [];
+      for (const file of files.slice(0, 6)) {
+        faceImages.push(await fileToDataUrl(file));
+      }
+
+      const res = await fetch(`/students/update/${encodeURIComponent(targetId)}/biometric`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ face_images: faceImages })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 404 && !body.error) {
+          throw new Error("Biometric endpoint not found. Restart the server.");
+        }
+        throw new Error(body.error || "Failed to update biometric data");
+      }
+
+      const updated = toViewModel(body.student || {});
+      studentMap.set(String(updated.index), updated);
+      students = students.map((s) => String(s.index) === String(updated.index) ? updated : s);
+      render();
+      openStudentModal(updated);
+      if (biometricFiles) biometricFiles.value = "";
+      setBiometricMsg("ok", "Biometric data updated successfully.");
+    } catch (err) {
+      setBiometricMsg("bad", err.message || "Biometric update failed.");
+    }
+  }
+
+  async function resetStudentPassword() {
+    if (!selectedStudentIndex && !selectedStudentDbId) return;
+    const targetId = String(selectedStudentDbId || selectedStudentIndex || "").trim();
+    if (!targetId) return;
+    const confirmed = window.confirm("Reset this student's password and generate a temporary password?");
+    if (!confirmed) return;
+
+    setPasswordMsg("neutral", "Resetting password...");
+    try {
+      const res = await fetch(`/students/reset-password/${encodeURIComponent(targetId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error || "Failed to reset password");
+      }
+      const tempPassword = body.temporary_password || "N/A";
+      setPasswordMsg("ok", `Temporary password: ${tempPassword}`);
+      alert(
+        `Password reset successful.\n` +
+        `Student ID: ${body.student_id || targetId}\n` +
+        `Temporary password: ${tempPassword}`
+      );
+    } catch (err) {
+      setPasswordMsg("bad", err.message || "Password reset failed.");
+    }
+  }
+
+  function wireStudentItemClicks() {
+    document.querySelectorAll(".student-item").forEach((el) => {
+      el.addEventListener("click", () => {
+        const index = el.dataset.studentIndex || "";
+        openStudentModal(studentMap.get(index));
+      });
+    });
+  }
+
+  async function loadStudents() {
+    groupsRoot.innerHTML = `
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-slate-600">
+        Loading students from database...
+      </div>
+    `;
+    try {
+      let payload = {};
+      let loaded = false;
+
+      const endpoints = [
+        "/students/data?active_only=true",
+        "/students/data?active_only=false"
+      ];
+
+      for (const endpoint of endpoints) {
+        const response = await fetch(endpoint, { method: "GET" });
+        payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          students = (payload.students || []).map(toViewModel);
+          studentMap.clear();
+          students.forEach((s) => studentMap.set(String(s.index), s));
+          loaded = true;
+          if (students.length > 0 || endpoint.includes("active_only=false")) break;
+        }
+      }
+
+      if (!loaded) throw new Error(payload.error || "Failed to load students.");
+      render();
+    } catch (error) {
+      console.error(error);
+      groupsRoot.innerHTML = `
+        <div class="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-700">
+          Failed to load students from database.
+        </div>
+      `;
+      countShown.textContent = "0";
+    }
+  }
+
+  document.querySelectorAll(".filterBtn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeLevelFilter = btn.dataset.filter;
+      document.querySelectorAll(".filterBtn").forEach((b) => {
+        b.classList.remove("bg-slate-900", "text-white", "border-slate-900");
+      });
+      btn.classList.add("bg-slate-900", "text-white", "border-slate-900");
+      render();
+    });
+  });
+
+  sortBy.addEventListener("change", render);
+  searchBox.addEventListener("input", render);
+  studentModalClose?.addEventListener("click", closeStudentModal);
+  studentModalOverlay?.addEventListener("click", closeStudentModal);
+  btnEditStudent?.addEventListener("click", showEditForm);
+  btnResetStudentPassword?.addEventListener("click", resetStudentPassword);
+  btnCancelEditStudent?.addEventListener("click", hideEditForm);
+  studentEditForm?.addEventListener("submit", saveStudentEdits);
+  btnSaveBiometric?.addEventListener("click", saveBiometricEdits);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeStudentModal();
+  });
+
+  btnExport.addEventListener("click", () => {
+    const filtered = applySort(applyFilters(students));
+    const header = ["Name", "Index", "Level", "Department", "Programme", "Biometric"];
+    const rows = filtered.map((st) => [
+      st.name, st.index, st.level, st.faculty, st.programme, st.biometric_enrolled ? "Enrolled" : "Not Enrolled"
+    ]);
+    const csv = [header, ...rows]
+      .map((arr) => arr.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "students_directory.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  document.querySelector('.filterBtn[data-filter="all"]')?.classList.add("bg-slate-900", "text-white", "border-slate-900");
+  loadStudents();
+</script>
+
+{% endblock %}

@@ -39,6 +39,7 @@ class FaceRecognitionEngine:
 
         config_model_url = str(getattr(Config, "EMBEDDING_MODEL_URL", "") or "").strip()
         env_model_url = str(os.getenv("EMBEDDING_MODEL_URL") or "").strip()
+        print("Model URL:", repr(env_model_url))
         env_model_url_legacy = str(os.getenv("ARCFACE_MODEL_URL") or "").strip()
         self.arcface_model_url = env_model_url or env_model_url_legacy or config_model_url
         os.makedirs(os.path.dirname(self.arcface_model_path) or ".", exist_ok=True)

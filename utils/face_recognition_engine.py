@@ -33,8 +33,14 @@ class FaceRecognitionEngine:
         self.required_angles = int(getattr(Config, "REQUIRED_ANGLES", 3))
 
         # ArcFace ONNX embedding model (you provide this file)
-        self.arcface_model_path = getattr(Config, "EMBEDDING_MODEL_PATH", "models/arcface_r100.onnx")
-        self.arcface_model_url = getattr(Config, "EMBEDDING_MODEL_URL", "")
+        config_model_path = str(getattr(Config, "EMBEDDING_MODEL_PATH", "") or "").strip()
+        env_model_path = str(os.getenv("EMBEDDING_MODEL_PATH") or "").strip()
+        self.arcface_model_path = env_model_path or config_model_path or "models/arcface_r100.onnx"
+
+        config_model_url = str(getattr(Config, "EMBEDDING_MODEL_URL", "") or "").strip()
+        env_model_url = str(os.getenv("EMBEDDING_MODEL_URL") or "").strip()
+        env_model_url_legacy = str(os.getenv("ARCFACE_MODEL_URL") or "").strip()
+        self.arcface_model_url = env_model_url or env_model_url_legacy or config_model_url
         os.makedirs(os.path.dirname(self.arcface_model_path) or ".", exist_ok=True)
 
         # MediaPipe task models (we auto-download)

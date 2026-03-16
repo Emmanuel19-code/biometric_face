@@ -147,8 +147,11 @@ def create_app(config_name=None):
     return app
 
 
+# Expose module-level WSGI app for Gunicorn (`app:app`).
+app = create_app()
+
+
 if __name__ == '__main__':
-    app = create_app()
     app.run(
         host=app.config['HOST'],
         port=app.config['PORT'],

@@ -21,3 +21,4 @@ mediapipe>=0.10.14
 onnxruntime>=1.20.0
 #python-3.11.8
 pyodbc==5.2.0
+gunicorn==23.0.0

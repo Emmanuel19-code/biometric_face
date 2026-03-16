@@ -10,7 +10,14 @@ logger = logging.getLogger(__name__)
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 admin_service = AdminService()
-attendance_service = AttendanceService()
+_attendance_service = None
+
+
+def _get_attendance_service():
+    global _attendance_service
+    if _attendance_service is None:
+        _attendance_service = AttendanceService()
+    return _attendance_service
 
 
 @admin_bp.route('/stats', methods=['GET'])
@@ -39,6 +46,7 @@ def create_session():
                 return jsonify({'error': f'Missing required field: {field}'}), 400
         
         admin_id = int(get_jwt_identity())
+        attendance_service = _get_attendance_service()
         success, result = attendance_service.create_session(data, admin_id)
         
         if success:
@@ -60,6 +68,7 @@ def list_sessions():
     """List all examination sessions"""
     try:
         active_only = request.args.get('active_only', 'false').lower() == 'true'
+        attendance_service = _get_attendance_service()
         sessions = attendance_service.get_all_sessions(active_only=active_only)
         
         return jsonify({
@@ -77,6 +86,7 @@ def list_sessions():
 def get_session(session_id):
     """Get session details"""
     try:
+        attendance_service = _get_attendance_service()
         sessions = attendance_service.get_all_sessions(active_only=False)
         session = next((s for s in sessions if s.get("id") == session_id), None)
         
@@ -156,6 +166,7 @@ def set_session_papers(session_id):
         papers = data.get('papers')
         if not isinstance(papers, list):
             return jsonify({'error': 'papers must be a list'}), 400
+        attendance_service = _get_attendance_service()
         success, result = attendance_service.set_session_papers(session_id, papers)
         if not success:
             return jsonify({'error': result}), 400
@@ -170,6 +181,7 @@ def set_session_papers(session_id):
 def get_session_papers(session_id):
     """Get session papers."""
     try:
+        attendance_service = _get_attendance_service()
         return jsonify({'papers': attendance_service.get_session_papers(session_id)}), 200
     except Exception as e:
         logger.error(f"Get session papers API error: {str(e)}")
@@ -186,6 +198,7 @@ def assign_session_invigilators(session_id):
         if not isinstance(invigilator_ids, list):
             return jsonify({'error': 'invigilator_ids must be a list'}), 400
 
+        attendance_service = _get_attendance_service()
         admin_id = int(get_jwt_identity())
         success, result = attendance_service.assign_invigilators(
             session_id=session_id,
@@ -205,6 +218,7 @@ def assign_session_invigilators(session_id):
 def get_session_invigilators(session_id):
     """Get invigilators assigned to a session."""
     try:
+        attendance_service = _get_attendance_service()
         assignments = attendance_service.get_session_invigilators(session_id)
         return jsonify({'invigilators': assignments, 'total': len(assignments)}), 200
     except Exception as e:
@@ -222,6 +236,7 @@ def register_students_for_session(session_id):
         if not isinstance(student_ids, list) or len(student_ids) == 0:
             return jsonify({'error': 'student_ids must be a non-empty list'}), 400
 
+        attendance_service = _get_attendance_service()
         admin_id = int(get_jwt_identity())
         success, result = attendance_service.register_students_for_session(
             session_id=session_id,
@@ -245,6 +260,7 @@ def register_students_for_session(session_id):
 def get_session_registrations(session_id):
     """Get official registration list for a session."""
     try:
+        attendance_service = _get_attendance_service()
         result = attendance_service.get_session_registrations(session_id)
         if result is None:
             return jsonify({'error': 'Session not found'}), 404
@@ -259,6 +275,7 @@ def get_session_registrations(session_id):
 def remove_session_registration(session_id, student_identifier):
     """Remove a student from the registration list of a session."""
     try:
+        attendance_service = _get_attendance_service()
         success, result = attendance_service.remove_student_registration(session_id, student_identifier)
         if not success:
             return jsonify({'error': result}), 404
@@ -319,6 +336,7 @@ def generate_attendance_report():
 def end_session(session_id):
     """End an exam session immediately."""
     try:
+        attendance_service = _get_attendance_service()
         success, result = attendance_service.end_session(session_id)
         if not success:
             return jsonify({'error': result}), 404
@@ -336,6 +354,7 @@ def end_session(session_id):
 def start_session(session_id):
     """Start an exam session manually."""
     try:
+        attendance_service = _get_attendance_service()
         success, result = attendance_service.start_session(session_id)
         if not success:
             return jsonify({'error': result}), 400

@@ -13,7 +13,14 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 attendance_bp = Blueprint('attendance', __name__, url_prefix='/api/attendance')
-attendance_service = AttendanceService()
+_attendance_service = None
+
+
+def _get_attendance_service():
+    global _attendance_service
+    if _attendance_service is None:
+        _attendance_service = AttendanceService()
+    return _attendance_service
 
 
 def decode_image(image_data):
@@ -91,6 +98,7 @@ def verify_attendance():
         except (TypeError, ValueError):
             return jsonify({'error': 'Invalid invigilator identity'}), 400
 
+        attendance_service = _get_attendance_service()
         success, result, confidence = attendance_service.verify_and_record_attendance(
             live_image=live_image,
             session_id=data['session_id'],
@@ -121,6 +129,7 @@ def verify_attendance():
 @jwt_required()
 def get_session_attendance(session_id):
     try:
+        attendance_service = _get_attendance_service()
         result = attendance_service.get_session_attendance(session_id)
         if not result:
             return jsonify({'error': 'Session not found'}), 404
@@ -134,6 +143,7 @@ def get_session_attendance(session_id):
 @jwt_required()
 def get_student_attendance(student_id):
     try:
+        attendance_service = _get_attendance_service()
         result = attendance_service.get_student_attendance_history(student_id)
         if not result:
             return jsonify({'error': 'Student not found'}), 404

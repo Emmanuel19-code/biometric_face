@@ -10,7 +10,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 students_bp = Blueprint('students', __name__, url_prefix='/api/students')
-student_service = StudentService()
+_student_service = None
+
+
+def _get_student_service():
+    global _student_service
+    if _student_service is None:
+        _student_service = StudentService()
+    return _student_service
 
 
 def decode_image(image_data):
@@ -51,6 +58,8 @@ def register_student():
                 return jsonify({'error': 'Invalid image data'}), 400
             face_images.append(image)
         
+        student_service = _get_student_service()
+
         # Register student
         success, result = student_service.register_student(
             {
@@ -86,6 +95,7 @@ def register_student():
 def get_student(student_id):
     """Get student details"""
     try:
+        student_service = _get_student_service()
         student = student_service.get_student(student_id)
         
         if not student:
@@ -104,6 +114,7 @@ def list_students():
     """List all students"""
     try:
         active_only = request.args.get('active_only', 'true').lower() == 'true'
+        student_service = _get_student_service()
         students = student_service.get_all_students(active_only=active_only)
         
         return jsonify({
@@ -128,6 +139,7 @@ def update_student(student_id):
         data.pop('face_encodings', None)
         data.pop('registration_date', None)
         
+        student_service = _get_student_service()
         success, result = student_service.update_student(student_id, data)
         
         if success:
@@ -148,6 +160,7 @@ def update_student(student_id):
 def deactivate_student(student_id):
     """Deactivate a student"""
     try:
+        student_service = _get_student_service()
         success, result = student_service.deactivate_student(student_id)
         
         if success:

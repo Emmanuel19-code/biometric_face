@@ -2,8 +2,8 @@
 {% set title = "Biometric Verification Test" %}
 {% block content %}
 
-<div class="grid lg:grid-cols-2 gap-4">
-  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+<div class="grid lg:grid-cols-2 gap-4 items-start">
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
     <div class="text-sm font-semibold">Verify Student Biometric</div>
     <p class="text-xs text-slate-500 mt-1">Use this page to test matching without creating attendance records.</p>
 
@@ -15,7 +15,10 @@
       </div>
 
       <div class="rounded-2xl border border-slate-200 bg-black overflow-hidden relative">
-        <video id="video" class="w-full h-80 object-cover" autoplay playsinline></video>
+        <video id="video" class="w-full h-56 sm:h-80 object-cover" autoplay playsinline></video>
+        <div class="absolute top-3 left-3 text-xs px-2 py-1 rounded-full bg-white/10 text-white backdrop-blur">
+          Camera: <span id="camLabel">Front</span>
+        </div>
       </div>
       <canvas id="canvas" class="hidden"></canvas>
 
@@ -24,13 +27,17 @@
                 class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-3 text-sm font-semibold hover:bg-brand-700">
           Capture Image
         </button>
+        <button id="btnSwitch"
+                class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold hover:bg-slate-50">
+          Switch Camera
+        </button>
         <input id="probeFile" type="file" accept="image/*"
                class="w-full text-xs text-slate-600 file:mr-2 file:rounded-lg file:border file:border-slate-200 file:bg-white file:px-3 file:py-2">
       </div>
 
       <div class="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
-        <img id="probePreview" class="w-full h-64 object-cover hidden" alt="Probe preview">
-        <div id="probeEmpty" class="h-64 flex items-center justify-center text-slate-500 text-sm">No probe image selected</div>
+        <img id="probePreview" class="w-full h-52 sm:h-64 object-cover hidden" alt="Probe preview">
+        <div id="probeEmpty" class="h-52 sm:h-64 flex items-center justify-center text-slate-500 text-sm">No probe image selected</div>
       </div>
 
       <button id="btnVerify"
@@ -62,7 +69,7 @@
     </div>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
     <div class="text-sm font-semibold">Update Student Biometric</div>
     <p class="text-xs text-slate-500 mt-1">Upload 3 or more clear face images to refresh saved templates.</p>
 
@@ -89,7 +96,9 @@
   const probeFile = document.getElementById("probeFile");
   const probePreview = document.getElementById("probePreview");
   const probeEmpty = document.getElementById("probeEmpty");
+  const camLabel = document.getElementById("camLabel");
   const btnCapture = document.getElementById("btnCapture");
+  const btnSwitch = document.getElementById("btnSwitch");
   const btnVerify = document.getElementById("btnVerify");
   const resultText = document.getElementById("resultText");
   const studentDetails = document.getElementById("studentDetails");
@@ -113,6 +122,7 @@
 
   let probeImageDataUrl = "";
   let stream = null;
+  let currentFacingMode = "user";
 
   function setProbe(dataUrl) {
     probeImageDataUrl = dataUrl || "";
@@ -161,9 +171,29 @@
     });
   }
 
-  async function startCamera() {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+  function stopCameraStream() {
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      stream = null;
+    }
+  }
+
+  async function startCamera(facingMode = currentFacingMode) {
+    stopCameraStream();
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingMode } }, audio: false });
     video.srcObject = stream;
+    currentFacingMode = facingMode;
+    camLabel.textContent = facingMode === "environment" ? "Back" : "Front";
+  }
+
+  async function switchCamera() {
+    const nextFacing = currentFacingMode === "user" ? "environment" : "user";
+    try {
+      await startCamera(nextFacing);
+    } catch (_) {
+      // Fallback to the current facing mode if the alternate one is unavailable.
+      await startCamera(currentFacingMode);
+    }
   }
 
   function capture() {
@@ -236,6 +266,13 @@
   }
 
   btnCapture.addEventListener("click", capture);
+  btnSwitch.addEventListener("click", async () => {
+    try {
+      await switchCamera();
+    } catch (e) {
+      resultText.textContent = "Could not switch camera on this device.";
+    }
+  });
   btnVerify.addEventListener("click", runVerification);
   btnUpdateBiometric.addEventListener("click", updateBiometric);
   probeFile.addEventListener("change", async () => {

@@ -2,7 +2,7 @@
 {% set title = "All Sessions" %}
 {% block content %}
 
-<div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+<div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
     <div>
       <div class="text-sm font-semibold">All Exam Sessions</div>
@@ -15,8 +15,8 @@
   <p id="sessionActionMsg" class="text-sm mt-3 hidden"></p>
 
   {% if sessions %}
-  <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-    <table class="w-full text-sm">
+  <div class="mt-4 -mx-4 sm:mx-0 overflow-x-auto rounded-xl border border-slate-200">
+    <table class="w-full min-w-[1080px] text-sm">
       <thead class="bg-white text-slate-500 border-b">
         <tr>
           <th class="text-left py-3 px-3">Session</th>

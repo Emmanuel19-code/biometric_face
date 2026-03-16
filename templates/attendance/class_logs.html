@@ -2,14 +2,14 @@
 {% set title = "Class Attendance Logs" %}
 {% block content %}
 
-<div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+<div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
   <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
     <div>
       <div class="text-sm font-semibold">Class Attendance Logs</div>
       <p class="text-xs text-slate-500 mt-1">Lecturers can only view attendance for assigned courses.</p>
     </div>
-    <form method="GET" action="{{ url_for('web.class_attendance_logs_page') }}" class="flex items-center gap-2">
-      <select name="course_code" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+    <form method="GET" action="{{ url_for('web.class_attendance_logs_page') }}" class="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+      <select name="course_code" class="w-full sm:w-auto rounded-xl border border-slate-200 px-3 py-2 text-sm">
         <option value="">All courses</option>
         {% for c in courses %}
         <option value="{{ c.course_code }}" {% if selected_course == c.course_code %}selected{% endif %}>
@@ -17,12 +17,12 @@
         </option>
         {% endfor %}
       </select>
-      <button class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">Filter</button>
+      <button class="w-full sm:w-auto rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">Filter</button>
     </form>
   </div>
 
-  <div class="mt-4 overflow-auto rounded-xl border border-slate-200">
-    <table class="w-full text-sm">
+  <div class="mt-4 -mx-4 sm:mx-0 overflow-auto rounded-xl border border-slate-200">
+    <table class="w-full min-w-[860px] text-sm">
       <thead class="bg-slate-50 text-slate-500">
         <tr>
           <th class="text-left py-3 px-3">Date</th>

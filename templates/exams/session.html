@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
 
   <!-- LEFT: Live Verification -->
   <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
@@ -32,7 +32,7 @@
     <!-- Paused Banner -->
     <div id="pausedBanner" class="hidden mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
       <div class="flex items-start gap-3">
-        <div class="mt-0.5 text-amber-700 font-bold">⏸</div>
+        <div class="mt-0.5 text-amber-700 font-bold">||</div>
         <div>
           <div class="text-sm font-semibold text-amber-900">Session Paused</div>
           <div class="text-sm text-amber-800 mt-1">
@@ -47,10 +47,10 @@
       <div>
         <div class="text-xs text-slate-500">Selected Session</div>
         <div class="text-sm font-semibold mt-1">
-          {{ selected.course if selected else "—" }} — {{ selected.title if selected else "" }}
+          {{ selected.course if selected else "-" }} - {{ selected.title if selected else "" }}
         </div>
         <div class="text-xs text-slate-500 mt-1">
-          {{ selected.time if selected else "" }} • {{ selected.venue if selected else "" }}
+          {{ selected.time if selected else "" }}  |  {{ selected.venue if selected else "" }}
         </div>
       </div>
 
@@ -164,7 +164,7 @@
   </div>
 
   <!-- RIGHT: Registered List + Result -->
-  <div class="space-y-4">
+  <div class="space-y-4 min-w-0">
 
     <!-- Registered candidates -->
     <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
@@ -185,7 +185,7 @@
       </div>
 
       <div class="mt-4 overflow-auto max-h-72 sm:max-h-80 rounded-xl border border-slate-200">
-        <table class="w-full text-sm">
+        <table class="w-full min-w-[340px] text-sm">
           <thead class="bg-slate-50 text-slate-500 sticky top-0">
             <tr>
               <th class="text-left py-2 px-3 whitespace-nowrap">Index</th>
@@ -211,7 +211,7 @@
       </div>
 
       <div class="mt-3 text-xs text-slate-500">
-        Tip: If a student is verified but not in this list, show “Not Eligible”.
+        Tip: If a student is verified but not in this list, show "Not Eligible".
       </div>
     </div>
 
@@ -231,23 +231,23 @@
       <div class="mt-4 rounded-2xl border border-slate-200 p-4 space-y-2 text-sm">
         <div class="flex justify-between gap-4">
           <span class="text-slate-500">Name</span>
-          <span id="resName" class="text-right">—</span>
+          <span id="resName" class="text-right break-words">-</span>
         </div>
         <div class="flex justify-between gap-4">
           <span class="text-slate-500">Index No.</span>
-          <span id="resIndex" class="text-right">—</span>
+          <span id="resIndex" class="text-right break-words">-</span>
         </div>
         <div class="flex justify-between gap-4">
           <span class="text-slate-500">Course</span>
-          <span id="resCourse" class="text-right">{{ selected.course if selected else "—" }}</span>
+          <span id="resCourse" class="text-right break-words">{{ selected.course if selected else "-" }}</span>
         </div>
         <div class="flex justify-between gap-4">
           <span class="text-slate-500">Eligibility</span>
-          <span id="resEligibility" class="text-right">—</span>
+          <span id="resEligibility" class="text-right break-words">-</span>
         </div>
         <div class="flex justify-between gap-4">
           <span class="text-slate-500">Method</span>
-          <span id="resMethod" class="text-right">—</span>
+          <span id="resMethod" class="text-right break-words">-</span>
         </div>
       </div>
 
@@ -304,8 +304,8 @@
 
         <div id="manualResult" class="mt-5 hidden rounded-2xl border border-slate-200 p-4">
           <div class="text-xs text-slate-500">Result</div>
-          <div class="mt-1 text-sm font-semibold" id="manualResultName">—</div>
-          <div class="mt-1 text-sm text-slate-600" id="manualResultMeta">—</div>
+          <div class="mt-1 text-sm font-semibold" id="manualResultName">-</div>
+          <div class="mt-1 text-sm text-slate-600" id="manualResultMeta">-</div>
 
           <div class="mt-4 flex flex-col sm:flex-row gap-2">
             <button id="btnUseManual"
@@ -370,10 +370,10 @@
   }
 
   function setResult({
-    name="—",
-    index="—",
-    eligible="—",
-    method="—",
+    name="-",
+    index="-",
+    eligible="-",
+    method="-",
     statusType="neutral",
     statusText="Waiting for verification"
   }) {
@@ -520,8 +520,8 @@
         const statusType = msgLower.includes("not registered") ? "warn" : "bad";
         const eligibility = msgLower.includes("not registered") ? "Not Eligible" : "Unknown";
         setResult({
-          name: "—",
-          index: claimedId || "—",
+          name: "-",
+          index: claimedId || "-",
           eligible: eligibility,
           method: "Face API",
           statusType,
@@ -532,7 +532,7 @@
 
       const student = result?.attendance?.student || {};
       const name = `${student.first_name || ""} ${student.last_name || ""}`.trim() || "Verified Student";
-      const indexNo = student.student_id || claimedId || "—";
+      const indexNo = student.student_id || claimedId || "-";
       const confidence = typeof result.confidence === "number" ? result.confidence.toFixed(2) : "N/A";
       setResult({
         name,
@@ -544,8 +544,8 @@
       });
     } catch (error) {
       setResult({
-        name: "—",
-        index: "—",
+        name: "-",
+        index: "-",
         eligible: "Unknown",
         method: "Face API",
         statusType: "bad",
@@ -654,7 +654,7 @@
     }
     manualFound = found;
     manualResultName.textContent = found.name;
-    manualResultMeta.textContent = `Index: ${found.index} • Status: Registered for this session`;
+    manualResultMeta.textContent = `Index: ${found.index}  |  Status: Registered for this session`;
     btnUseManual.disabled = false;
     btnUseManual.classList.remove("opacity-60", "cursor-not-allowed");
     setStatus("ok", "Manual match found (registered)");
@@ -693,8 +693,8 @@
   });
   btnDenyManual?.addEventListener("click", () => {
     setResult({
-      name: manualFound?.name || "—",
-      index: manualFound?.index || "—",
+      name: manualFound?.name || "-",
+      index: manualFound?.index || "-",
       eligible: "Not Eligible",
       method: "Manual Search",
       statusType: "warn",
@@ -883,3 +883,4 @@
 </script>
 
 {% endblock %}
+

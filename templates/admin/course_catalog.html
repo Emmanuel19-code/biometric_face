@@ -2,7 +2,7 @@
 {% set title = "Program Course Setup" %}
 {% block content %}
 
-<div class="grid lg:grid-cols-3 gap-4">
+<div class="grid lg:grid-cols-3 gap-4 items-start">
   <div class="lg:col-span-1 space-y-4">
     <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
       <div class="text-sm font-semibold">Add Program</div>
@@ -95,13 +95,13 @@
     </div>
   </div>
 
-  <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+  <div class="lg:col-span-2 min-w-0 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
     <div class="flex flex-col sm:flex-row sm:items-end gap-2 sm:justify-between">
       <div>
         <div class="text-sm font-semibold">Program-Level Courses</div>
         <p class="text-xs text-slate-500 mt-1">Filter and manage active mappings.</p>
       </div>
-      <div class="flex flex-col sm:flex-row gap-2">
+      <div class="flex flex-col sm:flex-row sm:flex-wrap gap-2">
         <select id="filterProgram" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
           <option value="">All programs</option>
         </select>
@@ -121,8 +121,8 @@
       </div>
     </div>
 
-    <div class="mt-4 overflow-auto rounded-xl border border-slate-200">
-      <table class="w-full text-sm">
+    <div class="mt-4 -mx-4 sm:mx-0 overflow-auto rounded-xl border border-slate-200">
+      <table class="w-full min-w-[760px] text-sm">
         <thead class="bg-slate-50 text-slate-500">
           <tr>
             <th class="text-left py-3 px-3">Program</th>
@@ -178,7 +178,7 @@
         </div>
         <span class="inline-flex mt-1 px-2 py-0.5 rounded-full text-[11px] ${statusClass}">${statusText}</span>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2 justify-start sm:justify-end">
         <button class="view-program-courses rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
                 data-program="${p.program_name}">
           View Courses
@@ -335,20 +335,22 @@
       <td class="py-3 px-3">${course.course_title || ""}</td>
       <td class="py-3 px-3">${course.credit_units ?? "-"}</td>
       <td class="py-3 px-3">
-        <button class="edit-course rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
-                data-id="${course.id}"
-                data-program="${course.program_name || ""}"
-                data-level="${course.level_name || ""}"
-                data-semester="${course.semester_no || ""}"
-                data-code="${course.course_code || ""}"
-                data-title="${course.course_title || ""}"
-                data-units="${course.credit_units ?? ""}">
-          Edit
-        </button>
-        <button class="remove-course rounded-lg border border-rose-200 text-rose-700 px-2 py-1 text-xs hover:bg-rose-50"
-                data-id="${course.id}">
-          Remove
-        </button>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <button class="edit-course rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
+                  data-id="${course.id}"
+                  data-program="${course.program_name || ""}"
+                  data-level="${course.level_name || ""}"
+                  data-semester="${course.semester_no || ""}"
+                  data-code="${course.course_code || ""}"
+                  data-title="${course.course_title || ""}"
+                  data-units="${course.credit_units ?? ""}">
+            Edit
+          </button>
+          <button class="remove-course rounded-lg border border-rose-200 text-rose-700 px-2 py-1 text-xs hover:bg-rose-50"
+                  data-id="${course.id}">
+            Remove
+          </button>
+        </div>
       </td>
     `;
     return tr;

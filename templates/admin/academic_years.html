@@ -2,8 +2,8 @@
 {% set title = "Academic Years" %}
 {% block content %}
 
-<div class="max-w-4xl mx-auto grid lg:grid-cols-2 gap-4">
-  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+<div class="max-w-5xl mx-auto grid lg:grid-cols-2 gap-4 items-start">
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
     <div class="text-sm font-semibold">Add Academic Year</div>
     <p class="text-xs text-slate-500 mt-1">Create an academic year and set enrollment status.</p>
     <form id="academicYearForm" class="mt-4 space-y-3">
@@ -51,7 +51,7 @@
     <p id="academicYearMsg" class="text-xs mt-3 text-slate-500"></p>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
     <div class="text-sm font-semibold">Academic Year List</div>
     <p class="text-xs text-slate-500 mt-1">Set current year and open/close enrollment.</p>
     <div id="academicYearList" class="mt-3 rounded-xl border border-slate-200 max-h-[32rem] overflow-auto divide-y">
@@ -103,7 +103,7 @@
 
   function renderAcademicYearRow(row) {
     const wrap = document.createElement("div");
-    wrap.className = "px-3 py-2 flex items-center justify-between gap-2";
+    wrap.className = "px-3 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2";
     const currentBadge = row.is_current
       ? '<span class="inline-flex px-2 py-0.5 rounded-full text-[11px] bg-emerald-50 text-emerald-700">Current</span>'
       : '<span class="inline-flex px-2 py-0.5 rounded-full text-[11px] bg-slate-100 text-slate-600">Not Current</span>';
@@ -116,7 +116,7 @@
         <div class="mt-1 text-[11px] text-slate-500">Start: ${row.start_month || "-"}-${row.start_day || "-"} | End: ${row.end_month || "-"}-${row.end_day || "-"}</div>
         <div class="mt-1 flex flex-wrap gap-1">${currentBadge} ${enrollmentBadge}</div>
       </div>
-      <div class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap gap-2 w-full sm:w-auto">
         <button class="set-current-year rounded-lg border border-slate-200 text-slate-700 px-2 py-1 text-xs hover:bg-slate-50"
                 data-id="${row.id}">
           Make Current

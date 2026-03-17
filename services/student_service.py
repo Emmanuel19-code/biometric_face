@@ -112,8 +112,8 @@ class StudentService:
             student = db_utils.execute_returning(
                 """
                 INSERT INTO students
-                    (student_id, first_name, last_name, email, phone, department, course, year_level, face_encodings, profile_photo, admission_academic_year, password_hash, must_change_password)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                    (student_id, first_name, last_name, email, phone, department, course, year_level, face_encodings, profile_photo, admission_academic_year, date_of_birth, password_hash, must_change_password)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
                 RETURNING *
                 """,
                 (
@@ -128,6 +128,7 @@ class StudentService:
                     encrypted_encodings,
                     profile_photo,
                     student_data.get("admission_academic_year"),
+                    student_data.get("date_of_birth"),
                     generate_password_hash(temporary_password),
                 )
             )
@@ -264,6 +265,7 @@ class StudentService:
             "year_level": row.get("year_level"),
             "profile_photo": row.get("profile_photo"),
             "admission_academic_year": row.get("admission_academic_year"),
+            "date_of_birth": row.get("date_of_birth").isoformat() if row.get("date_of_birth") else None,
             "registration_date": row.get("registration_date").isoformat() if row.get("registration_date") else None,
             "is_active": row.get("is_active"),
             "last_updated": row.get("last_updated").isoformat() if row.get("last_updated") else None

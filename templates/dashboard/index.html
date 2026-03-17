@@ -57,9 +57,9 @@
 </div>
 
 <!-- Main grid -->
-<div class="grid lg:grid-cols-3 gap-4 mt-6">
+<div class="grid grid-cols-1 gap-4 mt-6">
   <!-- Recent Activity -->
-  <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
       <div>
         <div class="text-sm font-semibold">Recent Activity</div>
@@ -143,75 +143,7 @@
     </div>
   </div>
 
-  <!-- Quick Actions -->
-  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm lg:sticky lg:top-6 h-fit">
-    <div class="text-sm font-semibold">Quick Actions</div>
-    <div class="text-xs text-slate-500 mt-1">Common tasks for invigilators.</div>
-
-    <div class="mt-4 space-y-2">
-      <a href="{{ url_for('web.exam_session_page') }}"
-         class="block text-center rounded-xl bg-brand-600 text-white py-3 font-semibold hover:bg-brand-700 transition">
-        Start Live Verification
-      </a>
-
-      <a href="{{ url_for('web.register_student_page') }}"
-         class="block text-center rounded-xl border border-slate-200 py-3 font-semibold hover:bg-slate-50 transition">
-        Register Student
-      </a>
-
-      <a href="{{ url_for('web.attendance_logs_page') }}"
-         class="block text-center rounded-xl border border-slate-200 py-3 font-semibold hover:bg-slate-50 transition">
-        View Attendance Logs
-      </a>
-    </div>
-
-    <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div class="text-xs text-slate-500">Pro Tip</div>
-      <div class="text-sm font-semibold mt-1">Use Manual Search when needed</div>
-      <div class="text-xs text-slate-600 mt-1">
-        If face verification fails but the student is registered, confirm eligibility manually and log it.
-      </div>
-    </div>
-
-    <div class="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
-      <div class="text-xs text-slate-500">Database Status</div>
-      <div class="mt-2 flex items-center gap-2">
-        <span id="dbStatusDot" class="h-2 w-2 rounded-full bg-slate-300"></span>
-        <span id="dbStatusText" class="text-sm font-semibold text-slate-700">Checking...</span>
-      </div>
-      <div id="dbStatusHint" class="text-xs text-slate-500 mt-2">Health check pending.</div>
-    </div>
-  </div>
 </div>
-
-<script>
-  (function () {
-    const dot = document.getElementById("dbStatusDot");
-    const text = document.getElementById("dbStatusText");
-    const hint = document.getElementById("dbStatusHint");
-
-    function setStatus(state, message) {
-      dot.className = "h-2 w-2 rounded-full";
-      if (state === "ok") dot.classList.add("bg-emerald-500");
-      else if (state === "bad") dot.classList.add("bg-rose-500");
-      else dot.classList.add("bg-slate-300");
-      text.textContent = message;
-      hint.textContent = state === "ok"
-        ? "Database reachable."
-        : state === "bad"
-          ? "Database unreachable. Check network or credentials."
-          : "Health check pending.";
-    }
-
-    fetch("/health/db", { method: "GET" })
-      .then((res) => {
-        if (!res.ok) throw new Error("db_unreachable");
-        return res.json();
-      })
-      .then(() => setStatus("ok", "Connected"))
-      .catch(() => setStatus("bad", "Offline"));
-  })();
-</script>
 
 {% endblock %}
 

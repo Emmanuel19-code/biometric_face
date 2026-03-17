@@ -19,9 +19,9 @@
       </div>
 
       <div>
-        <label class="text-xs text-slate-500">Student ID / Index</label>
+        <label class="text-xs text-slate-500">Student ID / Index (optional)</label>
         <input id="studentId" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-               placeholder="e.g. 10300087">
+               placeholder="Leave empty to identify by face">
       </div>
 
       <div class="rounded-2xl border border-slate-200 bg-black overflow-hidden relative">
@@ -157,10 +157,6 @@
       resultText.textContent = "Select a course first.";
       return;
     }
-    if (!studentId) {
-      resultText.textContent = "Enter student ID first.";
-      return;
-    }
     if (!probeImageDataUrl) {
       resultText.textContent = "Capture or upload an image first.";
       return;
@@ -172,7 +168,7 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          student_id: studentId,
+          student_id: studentId || undefined,
           course_code: courseCode,
           live_image: probeImageDataUrl
         })

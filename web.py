@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 import logging
 import re
 import calendar
+import os
 from flask import Blueprint, render_template, redirect, url_for, request, session, abort, jsonify, current_app
 from functools import wraps
 import base64
@@ -64,6 +65,164 @@ def _parse_iso_utc_naive(value):
     if dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
+
+
+def _parse_iso_date(value):
+    return datetime.strptime(str(value).strip(), "%Y-%m-%d").date()
+
+
+def _tail_file_lines(file_path, limit=200):
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+    except Exception:
+        return []
+    if limit <= 0:
+        return []
+    return [str(line).rstrip("\r\n") for line in lines[-limit:]]
+
+
+def _looks_like_failure_line(text):
+    return bool(
+        re.search(
+            r"(error|exception|traceback|fail(ed|ure)?|critical|refused|timeout|forbidden|not found|unreachable)",
+            str(text or ""),
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _collect_log_sources():
+    root = current_app.root_path
+    sources = {}
+
+    logs_dir = os.path.join(root, "logs")
+    if os.path.isdir(logs_dir):
+        for name in os.listdir(logs_dir):
+            full_path = os.path.join(logs_dir, name)
+            if os.path.isfile(full_path):
+                key = f"logs/{name}"
+                sources[key] = full_path
+
+    for name in ("run.err.log", "run.out.log"):
+        full_path = os.path.join(root, name)
+        if os.path.isfile(full_path):
+            sources[name] = full_path
+
+    out = []
+    for key, path in sources.items():
+        try:
+            stat = os.stat(path)
+            out.append(
+                {
+                    "name": key,
+                    "path": path,
+                    "size": int(stat.st_size or 0),
+                    "updated_at": datetime.utcfromtimestamp(stat.st_mtime),
+                }
+            )
+        except OSError:
+            continue
+    out.sort(key=lambda item: item.get("updated_at") or datetime.min, reverse=True)
+    return out
+
+
+def _client_ip():
+    forwarded_for = str(request.headers.get("X-Forwarded-For") or "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return (request.remote_addr or "").strip() or None
+
+
+def _client_user_agent():
+    ua = str(request.headers.get("User-Agent") or "").strip()
+    return ua[:500] if ua else None
+
+
+def _record_login_event(user_type, user_id, username=None, email=None, full_name=None):
+    payload = (
+        str(user_type or "").strip().lower(),
+        int(user_id),
+        (str(username or "").strip() or None),
+        (str(email or "").strip().lower() or None),
+        (str(full_name or "").strip() or None),
+        _client_ip(),
+        _client_user_agent(),
+    )
+    if get_database_backend() == "postgresql":
+        created = db_utils.execute_returning(
+            """
+            INSERT INTO login_audit_logs (user_type, user_id, username, email, full_name, ip_address, user_agent)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            payload,
+        )
+        return int((created or {}).get("id") or 0) or None
+
+    db_utils.execute(
+        """
+        INSERT INTO login_audit_logs (user_type, user_id, username, email, full_name, ip_address, user_agent)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        payload,
+    )
+    row = db_utils.fetch_one(
+        """
+        SELECT id
+        FROM login_audit_logs
+        WHERE user_type = %s AND user_id = %s AND logout_at IS NULL
+        ORDER BY login_at DESC
+        LIMIT 1
+        """,
+        (payload[0], payload[1]),
+    )
+    return int((row or {}).get("id") or 0) or None
+
+
+def _record_logout_event():
+    login_audit_id = session.get("login_audit_id")
+    if login_audit_id:
+        db_utils.execute(
+            """
+            UPDATE login_audit_logs
+            SET logout_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND logout_at IS NULL
+            """,
+            (int(login_audit_id),),
+        )
+        return
+
+    user_type = None
+    user_id = None
+    if session.get("admin_id"):
+        user_type = "admin"
+        user_id = int(session.get("admin_id"))
+    elif session.get("student_db_id"):
+        user_type = "student"
+        user_id = int(session.get("student_db_id"))
+    if not user_type or not user_id:
+        return
+
+    row = db_utils.fetch_one(
+        """
+        SELECT id
+        FROM login_audit_logs
+        WHERE user_type = %s AND user_id = %s AND logout_at IS NULL
+        ORDER BY login_at DESC
+        LIMIT 1
+        """,
+        (user_type, user_id),
+    )
+    if row and row.get("id"):
+        db_utils.execute(
+            """
+            UPDATE login_audit_logs
+            SET logout_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND logout_at IS NULL
+            """,
+            (int(row["id"]),),
+        )
 
 
 def _normalize_paper_group_code(value):
@@ -137,6 +296,21 @@ def _get_current_academic_year():
         ORDER BY id DESC
         LIMIT 1
         """
+    )
+
+
+def _get_current_open_exam_period(for_date=None):
+    target_date = for_date or datetime.utcnow().date()
+    return db_utils.fetch_one(
+        """
+        SELECT id, period_name, period_type, start_date, end_date, is_active
+        FROM exam_periods
+        WHERE is_active = TRUE
+          AND %s BETWEEN start_date AND end_date
+        ORDER BY start_date DESC, id DESC
+        LIMIT 1
+        """,
+        (target_date,),
     )
 
 
@@ -385,6 +559,33 @@ def _lecturer_course_codes(lecturer_id):
     )
 
 
+def _lecturer_teaching_scope_rows(lecturer_id):
+    _ensure_departments_schema()
+    return db_utils.fetch_all(
+        """
+        SELECT
+            lc.course_code,
+            COALESCE(NULLIF(lc.course_title, ''), plc.course_title, '') AS course_title,
+            COALESCE(plc.program_name, '') AS program_name,
+            COALESCE(plc.level_name, '') AS level_name,
+            plc.semester_no,
+            COALESCE(d.department_name, 'Unassigned') AS department_name
+        FROM lecturer_courses lc
+        LEFT JOIN program_level_courses plc
+               ON UPPER(plc.course_code) = UPPER(lc.course_code)
+              AND plc.is_active = TRUE
+        LEFT JOIN program_department_map pdm
+               ON LOWER(pdm.program_name) = LOWER(plc.program_name)
+        LEFT JOIN departments d
+               ON d.id = pdm.department_id
+        WHERE lc.lecturer_id = %s
+          AND lc.is_active = TRUE
+        ORDER BY department_name ASC, program_name ASC, level_name ASC, UPPER(lc.course_code) ASC
+        """,
+        (int(lecturer_id),),
+    )
+
+
 @web_bp.app_context_processor
 def inject_template_helpers():
     fallback_paths = {
@@ -397,6 +598,7 @@ def inject_template_helpers():
         "web.attendance_logs_page": "/attendance/logs",
         "web.class_attendance_page": "/class/attendance",
         "web.class_attendance_logs_page": "/class/attendance/logs",
+        "web.lecturer_teaching_scope_page": "/lecturer/teaching-scope",
         "web.session_setup_page": "/admin/session-setup",
         "web.halls_setup_page": "/admin/halls/setup",
         "web.course_catalog_page": "/admin/courses/setup",
@@ -404,8 +606,11 @@ def inject_template_helpers():
         "web.academic_years_page": "/admin/academic-years/manage",
         "web.semester_control_page": "/admin/semester-control",
         "web.lecturer_course_assignments_page": "/admin/lecturer-courses/manage",
+        "web.exam_periods_page": "/admin/exam-periods/manage",
         "web.add_lecturer_page": "/admin/lecturers/new",
         "web.add_invigilator_page": "/admin/lecturers/new",
+        "web.system_status_page": "/admin/system-status",
+        "web.login_audit_logs_page": "/admin/audit/login-logs",
         "web.logout_page": "/logout",
         "web.login_page": "/login",
     }
@@ -466,6 +671,13 @@ def login():
     session["role"] = (admin.get("role") or "invigilator").lower()
     session["full_name"] = admin.get("full_name") or admin.get("username") or ""
     session["admin_force_change_password"] = bool(admin.get("must_change_password"))
+    session["login_audit_id"] = _record_login_event(
+        user_type="admin",
+        user_id=admin["id"],
+        username=admin.get("username"),
+        email=admin.get("email"),
+        full_name=admin.get("full_name"),
+    )
     if session.get("admin_force_change_password"):
         return redirect(url_for("web.admin_change_password_page"))
     return redirect(url_for("web.dashboard_page"))
@@ -510,6 +722,13 @@ def student_login():
     session["student_program"] = student.get("course")
     session["student_level"] = student.get("year_level")
     session["student_force_change_password"] = bool(student.get("must_change_password"))
+    session["login_audit_id"] = _record_login_event(
+        user_type="student",
+        user_id=student["id"],
+        username=student.get("student_id"),
+        email=student.get("email"),
+        full_name=full_name or student.get("student_id"),
+    )
     if session.get("student_force_change_password"):
         return redirect(url_for("web.student_change_password_page"))
     return redirect(url_for("web.student_portal_page"))
@@ -861,6 +1080,7 @@ def student_unregister_course(course_code):
 @web_bp.get("/student/logout")
 @web_bp.get("/student/logout", endpoint="student_logout_page")
 def student_logout():
+    _record_logout_event()
     session.clear()
     return redirect(url_for("web.student_login_page"))
 
@@ -969,6 +1189,19 @@ def register_student_submit():
             return jsonify({"error": "last_name is required"}), 400
         if not email:
             return jsonify({"error": "email is required"}), 400
+        dob_raw = str(data.get("dob") or "").strip()
+        if not dob_raw:
+            return jsonify({"error": "date of birth is required"}), 400
+        try:
+            dob = _parse_iso_date(dob_raw)
+        except Exception:
+            return jsonify({"error": "Invalid date of birth format"}), 400
+        today = datetime.utcnow().date()
+        if dob >= today:
+            return jsonify({"error": "Date of birth must be earlier than today"}), 400
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        if age < 15:
+            return jsonify({"error": "Student must be at least 15 years old"}), 400
         course_choice = str(data.get("course") or "").strip()
         if not course_choice:
             return jsonify({"error": "course/program is required"}), 400
@@ -1050,6 +1283,7 @@ def register_student_submit():
                 "course": program_row.get("program_name"),
                 "year_level": data.get("year_level"),
                 "admission_academic_year": current_year.get("year_label"),
+                "date_of_birth": dob,
             },
             face_images,
             profile_photo=profile_photo,
@@ -1072,7 +1306,6 @@ def register_student_submit():
 @web_bp.get("/exams/session", endpoint="exam_session_page")
 @roles_required("invigilator", "lecturer", "admin", "super_admin")
 def exam_session_page():
-    _auto_activate_live_sessions()
     if _has_role("invigilator"):
         admin_id = session.get("admin_id")
         live_assignment = db_utils.fetch_one(
@@ -1090,6 +1323,10 @@ def exam_session_page():
         )
         if not live_assignment:
             abort(403, description="Exam verification is unavailable until admin activates and assigns your session.")
+    if _has_role("lecturer"):
+        active_period = _get_current_open_exam_period()
+        if not active_period:
+            abort(403, description="Exam verification is unavailable. No active exam/midsem period is open.")
 
     now = datetime.utcnow()
     rows = db_utils.fetch_all(
@@ -1434,6 +1671,46 @@ def class_attendance_page():
     )
 
 
+@web_bp.get("/lecturer/teaching-scope")
+@web_bp.get("/lecturer/teaching-scope", endpoint="lecturer_teaching_scope_page")
+@roles_required("lecturer")
+def lecturer_teaching_scope_page():
+    admin_id = int(session.get("admin_id"))
+    rows = _lecturer_teaching_scope_rows(admin_id)
+    departments = {
+        str(r.get("department_name") or "").strip()
+        for r in rows
+        if str(r.get("department_name") or "").strip()
+    }
+    programs = {
+        str(r.get("program_name") or "").strip()
+        for r in rows
+        if str(r.get("program_name") or "").strip()
+    }
+    levels = {
+        str(r.get("level_name") or "").strip()
+        for r in rows
+        if str(r.get("level_name") or "").strip()
+    }
+    courses = {
+        str(r.get("course_code") or "").strip().upper()
+        for r in rows
+        if str(r.get("course_code") or "").strip()
+    }
+    summary = {
+        "departments": len(departments),
+        "programs": len(programs),
+        "levels": len(levels),
+        "courses": len(courses),
+    }
+    return render_template(
+        "lecturer/teaching_scope.html",
+        title="My Teaching Scope",
+        rows=rows,
+        summary=summary,
+    )
+
+
 @web_bp.post("/class/attendance/verify")
 @roles_required("lecturer", "admin", "super_admin")
 def verify_class_attendance():
@@ -1443,8 +1720,6 @@ def verify_class_attendance():
         course_code = str(payload.get("course_code") or "").strip().upper()
         raw_image = payload.get("live_image")
 
-        if not student_identifier:
-            return jsonify({"error": "student_id is required"}), 400
         if not course_code:
             return jsonify({"error": "course_code is required"}), 400
         if not raw_image:
@@ -1467,22 +1742,45 @@ def verify_class_attendance():
             return jsonify({"error": "Invalid live image"}), 400
 
         student_service = _get_student_service()
-        student = student_service.get_student(student_identifier)
-        if not student:
-            return jsonify({"error": "Student not found"}), 404
-        if not student.get("is_active"):
-            return jsonify({"error": "Student account is inactive"}), 400
+        student = None
+        confidence = 0.0
+        if student_identifier:
+            student = student_service.get_student(student_identifier)
+            if not student:
+                return jsonify({"error": "Student not found"}), 404
+            if not student.get("is_active"):
+                return jsonify({"error": "Student account is inactive"}), 400
 
-        stored_encodings = student_service.get_face_encodings(student)
-        if not stored_encodings:
-            return jsonify({"error": "Student has no saved biometric templates"}), 400
+            stored_encodings = student_service.get_face_encodings(student)
+            if not stored_encodings:
+                return jsonify({"error": "Student has no saved biometric templates"}), 400
 
-        is_match, confidence = student_service.face_engine.verify_identity(live_img, stored_encodings)
-        if not is_match:
-            return jsonify({
-                "error": f"Identity verification failed. Confidence: {confidence:.2f}",
-                "confidence": float(confidence)
-            }), 400
+            is_match, confidence = student_service.face_engine.verify_identity(live_img, stored_encodings)
+            if not is_match:
+                return jsonify({
+                    "error": f"Identity verification failed. Confidence: {confidence:.2f}",
+                    "confidence": float(confidence)
+                }), 400
+        else:
+            cache = student_service.get_encoding_cache() or []
+            if not cache:
+                return jsonify({"error": "No enrolled students with biometric templates found"}), 404
+
+            best_student = None
+            best_confidence = -1.0
+            for student_row, stored_encodings in cache:
+                if not stored_encodings:
+                    continue
+                if not student_row.get("is_active"):
+                    continue
+                is_match, conf = student_service.face_engine.verify_identity(live_img, stored_encodings)
+                if is_match and conf > best_confidence:
+                    best_student = student_row
+                    best_confidence = float(conf)
+            if not best_student:
+                return jsonify({"error": "Identity verification failed. No matching student found."}), 400
+            student = best_student
+            confidence = best_confidence
 
         row = db_utils.execute_returning(
             """
@@ -1593,11 +1891,227 @@ def class_attendance_logs_page():
     )
 
 
+@web_bp.get("/admin/system-status")
+@web_bp.get("/admin/system-status", endpoint="system_status_page")
+@roles_required("admin", "super_admin")
+def system_status_page():
+    db_status = {"state": "ok", "message": "Database reachable."}
+    try:
+        db_utils.fetch_one("SELECT 1 AS ok")
+    except Exception as exc:
+        logger.error(f"System status DB check failed: {exc}")
+        db_status = {"state": "error", "message": str(exc)}
+
+    sources = _collect_log_sources()
+    source_names = [s.get("name") for s in sources if s.get("name")]
+    selected_source = str(request.args.get("source") or "").strip()
+    if selected_source not in source_names:
+        selected_source = source_names[0] if source_names else ""
+
+    limit_raw = request.args.get("limit", "200")
+    try:
+        limit = int(limit_raw)
+    except (TypeError, ValueError):
+        limit = 200
+    limit = max(20, min(limit, 1000))
+
+    selected_path = None
+    for item in sources:
+        if item.get("name") == selected_source:
+            selected_path = item.get("path")
+            break
+
+    raw_lines = _tail_file_lines(selected_path, limit=limit) if selected_path else []
+    numbered_lines = [{"line_no": idx + 1, "text": text} for idx, text in enumerate(raw_lines)]
+    failure_lines = [row for row in numbered_lines if _looks_like_failure_line(row.get("text"))]
+    failure_lines = failure_lines[-200:]
+
+    return render_template(
+        "admin/system_status.html",
+        title="System Status",
+        db_status=db_status,
+        log_sources=sources,
+        selected_source=selected_source,
+        limit=limit,
+        raw_lines=numbered_lines,
+        failure_lines=failure_lines,
+    )
+
+
+@web_bp.get("/admin/exam-periods/manage")
+@web_bp.get("/admin/exam-periods/manage", endpoint="exam_periods_page")
+@roles_required("admin", "super_admin")
+def exam_periods_page():
+    periods = db_utils.fetch_all(
+        """
+        SELECT
+            ep.id,
+            ep.period_name,
+            ep.period_type,
+            ep.start_date,
+            ep.end_date,
+            ep.is_active,
+            ep.created_at,
+            a.full_name AS created_by_name
+        FROM exam_periods ep
+        LEFT JOIN admins a ON a.id = ep.created_by
+        ORDER BY ep.start_date DESC, ep.id DESC
+        """
+    )
+    active_period = _get_current_open_exam_period()
+    return render_template(
+        "admin/exam_periods.html",
+        title="Exam Periods",
+        periods=periods,
+        active_period=active_period,
+    )
+
+
+@web_bp.post("/admin/exam-periods/save")
+@roles_required("admin", "super_admin")
+def save_exam_period():
+    payload = request.get_json() or {}
+    period_id_raw = payload.get("id")
+    period_name = str(payload.get("period_name") or "").strip()
+    period_type = str(payload.get("period_type") or "").strip().upper()
+    start_date_raw = str(payload.get("start_date") or "").strip()
+    end_date_raw = str(payload.get("end_date") or "").strip()
+    is_active = bool(payload.get("is_active", True))
+
+    if not period_name:
+        return jsonify({"error": "period_name is required"}), 400
+    if period_type not in {"EXAMS", "MIDSEM"}:
+        return jsonify({"error": "period_type must be EXAMS or MIDSEM"}), 400
+    try:
+        start_date = _parse_iso_date(start_date_raw)
+        end_date = _parse_iso_date(end_date_raw)
+    except Exception:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+    if end_date < start_date:
+        return jsonify({"error": "end_date must be on or after start_date"}), 400
+
+    admin_id = int(session.get("admin_id"))
+    if period_id_raw in (None, "", 0, "0"):
+        row = db_utils.execute_returning(
+            """
+            INSERT INTO exam_periods (period_name, period_type, start_date, end_date, is_active, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, period_name, period_type, start_date, end_date, is_active, created_at
+            """,
+            (period_name, period_type, start_date, end_date, is_active, admin_id),
+        )
+        return jsonify({"message": "Exam period created", "period": row}), 201
+
+    try:
+        period_id = int(period_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "id must be numeric"}), 400
+    row = db_utils.execute_returning(
+        """
+        UPDATE exam_periods
+        SET period_name = %s,
+            period_type = %s,
+            start_date = %s,
+            end_date = %s,
+            is_active = %s
+        WHERE id = %s
+        RETURNING id, period_name, period_type, start_date, end_date, is_active, created_at
+        """,
+        (period_name, period_type, start_date, end_date, is_active, period_id),
+    )
+    if not row:
+        return jsonify({"error": "Exam period not found"}), 404
+    return jsonify({"message": "Exam period updated", "period": row}), 200
+
+
+@web_bp.post("/admin/exam-periods/<int:period_id>/toggle")
+@roles_required("admin", "super_admin")
+def toggle_exam_period(period_id):
+    payload = request.get_json() or {}
+    if "is_active" not in payload:
+        return jsonify({"error": "is_active is required"}), 400
+    is_active = bool(payload.get("is_active"))
+    row = db_utils.execute_returning(
+        """
+        UPDATE exam_periods
+        SET is_active = %s
+        WHERE id = %s
+        RETURNING id, period_name, period_type, start_date, end_date, is_active
+        """,
+        (is_active, int(period_id)),
+    )
+    if not row:
+        return jsonify({"error": "Exam period not found"}), 404
+    return jsonify({"message": "Exam period updated", "period": row}), 200
+
+
+@web_bp.get("/admin/audit/login-logs")
+@web_bp.get("/admin/audit/login-logs", endpoint="login_audit_logs_page")
+@roles_required("admin", "super_admin")
+def login_audit_logs_page():
+    user_type = str(request.args.get("user_type") or "").strip().lower()
+    q = str(request.args.get("q") or "").strip()
+    limit_raw = request.args.get("limit", "500")
+    try:
+        limit = int(limit_raw)
+    except (TypeError, ValueError):
+        limit = 500
+    limit = max(1, min(limit, 2000))
+
+    where = []
+    params = []
+    if user_type in {"admin", "student"}:
+        where.append("lal.user_type = %s")
+        params.append(user_type)
+    if q:
+        query = f"%{q.lower()}%"
+        where.append(
+            "("
+            "LOWER(COALESCE(lal.username, '')) LIKE %s OR "
+            "LOWER(COALESCE(lal.email, '')) LIKE %s OR "
+            "LOWER(COALESCE(lal.full_name, '')) LIKE %s"
+            ")"
+        )
+        params.extend([query, query, query])
+
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    params.append(limit)
+    rows = db_utils.fetch_all(
+        f"""
+        SELECT
+            lal.id,
+            lal.user_type,
+            lal.user_id,
+            lal.username,
+            lal.email,
+            lal.full_name,
+            lal.login_at,
+            lal.logout_at,
+            lal.ip_address,
+            lal.user_agent
+        FROM login_audit_logs lal
+        {where_sql}
+        ORDER BY lal.login_at DESC
+        LIMIT %s
+        """,
+        tuple(params),
+    )
+    return render_template(
+        "admin/login_audit_logs.html",
+        title="Login Audit Logs",
+        rows=rows,
+        filters={
+            "user_type": user_type,
+            "q": q,
+            "limit": limit,
+        },
+    )
+
+
 @web_bp.get("/exams/sessions")
 @web_bp.get("/exams/sessions", endpoint="all_sessions_page")
 @roles_required("invigilator", "lecturer", "admin", "super_admin")
 def all_sessions_page():
-    _auto_activate_live_sessions()
     sessions = db_utils.fetch_all(
         """
         SELECT id, session_name, course_code, venue, start_time, end_time, is_active
@@ -1605,6 +2119,27 @@ def all_sessions_page():
         ORDER BY start_time DESC
         """
     )
+    now = datetime.utcnow()
+    normalized_sessions = []
+    for s in sessions:
+        start_time = s.get("start_time")
+        end_time = s.get("end_time")
+        is_active = bool(s.get("is_active"))
+        if end_time and end_time <= now:
+            status = "Ended"
+        elif start_time and start_time > now:
+            status = "Upcoming"
+        elif is_active and start_time and end_time and start_time <= now <= end_time:
+            status = "Live"
+        elif is_active:
+            status = "Live"
+        else:
+            status = "Inactive"
+        s["status"] = status
+        s["can_start"] = bool(status in {"Upcoming", "Inactive"})
+        s["can_end"] = bool(is_active and status == "Live")
+        normalized_sessions.append(s)
+    sessions = normalized_sessions
     if _has_role("lecturer"):
         assigned_codes = set(_lecturer_course_codes(int(session.get("admin_id"))))
         sessions = [
@@ -2027,7 +2562,12 @@ def update_exam_hall(hall_id):
 @roles_required("admin", "super_admin")
 def session_setup_data(session_id):
     row = db_utils.fetch_one(
-        "SELECT id FROM examination_sessions WHERE id = %s",
+        """
+        SELECT id, session_name, course_code, paper_group_code, hall_id, venue, expected_students,
+               start_time, end_time, is_active, allow_file_upload
+        FROM examination_sessions
+        WHERE id = %s
+        """,
         (session_id,),
     )
     if not row:
@@ -2047,7 +2587,127 @@ def session_setup_data(session_id):
         """,
         (session_id,),
     )
-    return jsonify({"papers": papers, "invigilators": invigilators}), 200
+    session_payload = {
+        "id": row.get("id"),
+        "session_name": row.get("session_name"),
+        "course_code": row.get("course_code"),
+        "paper_group_code": row.get("paper_group_code"),
+        "hall_id": row.get("hall_id"),
+        "venue": row.get("venue"),
+        "expected_students": row.get("expected_students"),
+        "start_time": row.get("start_time").isoformat() if row.get("start_time") else None,
+        "end_time": row.get("end_time").isoformat() if row.get("end_time") else None,
+        "is_active": bool(row.get("is_active")),
+        "allow_file_upload": bool(row.get("allow_file_upload")),
+    }
+    return jsonify({"session": session_payload, "papers": papers, "invigilators": invigilators}), 200
+
+
+@web_bp.post("/admin/sessions/<int:session_id>/setup-data/schedule")
+@roles_required("admin", "super_admin")
+def session_setup_reschedule(session_id):
+    payload = request.get_json() or {}
+    row = db_utils.fetch_one(
+        """
+        SELECT id, hall_id, venue, expected_students, start_time, end_time, is_active, allow_file_upload
+        FROM examination_sessions
+        WHERE id = %s
+        LIMIT 1
+        """,
+        (session_id,),
+    )
+    if not row:
+        return jsonify({"error": "Session not found"}), 404
+
+    now = datetime.utcnow()
+    start_existing = row.get("start_time")
+    end_existing = row.get("end_time")
+    is_live = bool(row.get("is_active") and start_existing and end_existing and start_existing <= now <= end_existing)
+    if is_live:
+        return jsonify({"error": "Cannot reschedule a live session. End it first."}), 409
+
+    start_raw = payload.get("start_time")
+    end_raw = payload.get("end_time")
+    if not start_raw or not end_raw:
+        return jsonify({"error": "start_time and end_time are required"}), 400
+    try:
+        start_time = _parse_iso_utc_naive(start_raw)
+        end_time = _parse_iso_utc_naive(end_raw)
+    except Exception:
+        return jsonify({"error": "Invalid date format"}), 400
+    if end_time <= start_time:
+        return jsonify({"error": "end_time must be after start_time"}), 400
+
+    hall_id_raw = payload.get("hall_id", row.get("hall_id"))
+    try:
+        hall_id = int(hall_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "hall_id is required"}), 400
+    hall = db_utils.fetch_one(
+        "SELECT id, name, capacity, is_active FROM exam_halls WHERE id = %s LIMIT 1",
+        (hall_id,),
+    )
+    if not hall or not hall.get("is_active"):
+        return jsonify({"error": "Selected hall is invalid or inactive"}), 400
+
+    expected_raw = payload.get("expected_students", row.get("expected_students"))
+    try:
+        expected_students = int(expected_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "expected_students must be a valid number"}), 400
+    if expected_students <= 0:
+        return jsonify({"error": "expected_students must be greater than zero"}), 400
+    hall_capacity = int(hall.get("capacity") or 0)
+    if hall_capacity > 0 and expected_students > hall_capacity:
+        return jsonify({"error": f"Expected students ({expected_students}) exceed hall capacity ({hall_capacity})."}), 400
+
+    overlap = db_utils.fetch_one(
+        """
+        SELECT id, session_name
+        FROM examination_sessions
+        WHERE hall_id = %s
+          AND id <> %s
+          AND start_time < %s
+          AND end_time > %s
+        ORDER BY start_time ASC
+        LIMIT 1
+        """,
+        (hall_id, session_id, end_time, start_time),
+    )
+    if overlap:
+        return jsonify({"error": f"Hall is already booked by '{overlap.get('session_name')}' in that time window."}), 409
+
+    allow_file_upload = payload.get("allow_file_upload")
+    if allow_file_upload is None:
+        allow_file_upload = bool(row.get("allow_file_upload"))
+    else:
+        allow_file_upload = bool(allow_file_upload)
+
+    updated = db_utils.execute_returning(
+        """
+        UPDATE examination_sessions
+        SET hall_id = %s,
+            venue = %s,
+            expected_students = %s,
+            start_time = %s,
+            end_time = %s,
+            allow_file_upload = %s,
+            is_active = FALSE
+        WHERE id = %s
+        RETURNING id, session_name, course_code, paper_group_code, hall_id, venue, expected_students,
+                  start_time, end_time, is_active, allow_file_upload
+        """,
+        (
+            hall_id,
+            hall.get("name"),
+            expected_students,
+            start_time,
+            end_time,
+            allow_file_upload,
+            session_id,
+        ),
+    )
+    return jsonify({"message": "Session rescheduled. It remains inactive until you start it.", "session": updated}), 200
 
 
 @web_bp.post("/admin/sessions/<int:session_id>/setup-data/papers")
@@ -4054,6 +4714,7 @@ def create_lecturer_web():
 @web_bp.get("/logout")
 @web_bp.get("/logout", endpoint="logout_page")
 def logout():
+    _record_logout_event()
     session.clear()
     return redirect(url_for("web.login_page"))
 

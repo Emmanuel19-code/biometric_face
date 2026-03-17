@@ -83,6 +83,13 @@ def create_app(config_name=None):
     @app.errorhandler(401)
     def unauthorized(error):
         return jsonify({'error': 'Unauthorized'}), 401
+
+    @app.errorhandler(403)
+    def forbidden(error):
+        message = getattr(error, "description", "You do not have permission to access this page.")
+        if request.path.startswith("/api/"):
+            return jsonify({"error": str(message or "Forbidden")}), 403
+        return render_template("errors/403.html", message=message), 403
     
     @app.errorhandler(404)
     def not_found(error):

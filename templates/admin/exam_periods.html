@@ -1,0 +1,221 @@
+{% extends "layout.html" %}
+{% set title = "Exam Periods" %}
+{% block content %}
+
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+  <div class="xl:col-span-1 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">Add / Edit Exam Period</div>
+    <div class="text-xs text-slate-500 mt-1">Set EXAMS or MIDSEM periods to control lecturer access to exam verification.</div>
+
+    <div class="mt-4 space-y-3">
+      <input id="periodId" type="hidden" />
+      <div>
+        <label class="text-xs text-slate-500">Period Name</label>
+        <input id="periodName" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+               placeholder="e.g. 2026 Midsem Window" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Type</label>
+        <select id="periodType" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+          <option value="EXAMS">EXAMS</option>
+          <option value="MIDSEM">MIDSEM</option>
+        </select>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-slate-500">Start Date</label>
+          <input id="startDate" type="date" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">End Date</label>
+          <input id="endDate" type="date" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+        </div>
+      </div>
+      <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+        <input id="isActive" type="checkbox" class="rounded border-slate-300" checked />
+        Active
+      </label>
+
+      <div class="flex flex-col sm:flex-row gap-2">
+        <button id="saveBtn" class="rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-semibold hover:bg-brand-700">
+          Save Period
+        </button>
+        <button id="clearBtn" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50">
+          Clear
+        </button>
+      </div>
+      <div id="formMsg" class="text-sm"></div>
+    </div>
+  </div>
+
+  <div class="xl:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div>
+        <div class="text-sm font-semibold">Exam Periods</div>
+        <div class="text-xs text-slate-500 mt-1">Lecturers can access exam verification only inside an active period.</div>
+      </div>
+      {% if active_period %}
+      <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+        Active now: {{ active_period.period_name }} ({{ active_period.period_type }})
+      </div>
+      {% else %}
+      <div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        No active period now
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full min-w-[760px] text-sm">
+        <thead class="bg-slate-50 text-slate-600 border-y border-slate-200">
+          <tr>
+            <th class="text-left px-3 py-2">Name</th>
+            <th class="text-left px-3 py-2">Type</th>
+            <th class="text-left px-3 py-2">Start</th>
+            <th class="text-left px-3 py-2">End</th>
+            <th class="text-left px-3 py-2">Status</th>
+            <th class="text-left px-3 py-2">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y bg-white">
+          {% for p in periods %}
+          <tr>
+            <td class="px-3 py-2">{{ p.period_name }}</td>
+            <td class="px-3 py-2">{{ p.period_type }}</td>
+            <td class="px-3 py-2">{{ p.start_date.strftime('%Y-%m-%d') if p.start_date else '-' }}</td>
+            <td class="px-3 py-2">{{ p.end_date.strftime('%Y-%m-%d') if p.end_date else '-' }}</td>
+            <td class="px-3 py-2">
+              {% if p.is_active %}
+              <span class="px-2 py-1 rounded-full text-xs bg-emerald-50 text-emerald-700">Active</span>
+              {% else %}
+              <span class="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-600">Inactive</span>
+              {% endif %}
+            </td>
+            <td class="px-3 py-2">
+              <div class="flex gap-2">
+                <button class="editBtn rounded-lg border border-slate-200 px-3 py-1 text-xs hover:bg-slate-50"
+                        data-id="{{ p.id }}"
+                        data-name="{{ p.period_name }}"
+                        data-type="{{ p.period_type }}"
+                        data-start="{{ p.start_date.strftime('%Y-%m-%d') if p.start_date else '' }}"
+                        data-end="{{ p.end_date.strftime('%Y-%m-%d') if p.end_date else '' }}"
+                        data-active="{{ '1' if p.is_active else '0' }}">
+                  Edit
+                </button>
+                <button class="toggleBtn rounded-lg border border-slate-200 px-3 py-1 text-xs hover:bg-slate-50"
+                        data-id="{{ p.id }}"
+                        data-active="{{ '1' if p.is_active else '0' }}">
+                  {{ 'Deactivate' if p.is_active else 'Activate' }}
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not periods %}
+          <tr>
+            <td colspan="6" class="px-3 py-6 text-center text-slate-500">No exam periods added yet.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  const periodId = document.getElementById("periodId");
+  const periodName = document.getElementById("periodName");
+  const periodType = document.getElementById("periodType");
+  const startDate = document.getElementById("startDate");
+  const endDate = document.getElementById("endDate");
+  const isActive = document.getElementById("isActive");
+  const saveBtn = document.getElementById("saveBtn");
+  const clearBtn = document.getElementById("clearBtn");
+  const formMsg = document.getElementById("formMsg");
+
+  function setMsg(text, good) {
+    formMsg.className = `text-sm ${good ? "text-emerald-700" : "text-rose-700"}`;
+    formMsg.textContent = text || "";
+  }
+
+  function clearForm() {
+    periodId.value = "";
+    periodName.value = "";
+    periodType.value = "EXAMS";
+    startDate.value = "";
+    endDate.value = "";
+    isActive.checked = true;
+    setMsg("", true);
+  }
+
+  async function savePeriod() {
+    const payload = {
+      id: periodId.value || undefined,
+      period_name: (periodName.value || "").trim(),
+      period_type: periodType.value,
+      start_date: startDate.value,
+      end_date: endDate.value,
+      is_active: !!isActive.checked,
+    };
+
+    if (!payload.period_name || !payload.start_date || !payload.end_date) {
+      setMsg("Period name, start date and end date are required.", false);
+      return;
+    }
+
+    try {
+      const res = await fetch("/admin/exam-periods/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to save exam period.");
+      setMsg(body.message || "Saved.", true);
+      setTimeout(() => window.location.reload(), 400);
+    } catch (err) {
+      setMsg(err.message || "Failed to save exam period.", false);
+    }
+  }
+
+  async function togglePeriod(id, active) {
+    const next = !active;
+    try {
+      const res = await fetch(`/admin/exam-periods/${id}/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: next }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to update period.");
+      window.location.reload();
+    } catch (err) {
+      alert(err.message || "Failed to update period.");
+    }
+  }
+
+  document.querySelectorAll(".editBtn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      periodId.value = btn.dataset.id || "";
+      periodName.value = btn.dataset.name || "";
+      periodType.value = btn.dataset.type || "EXAMS";
+      startDate.value = btn.dataset.start || "";
+      endDate.value = btn.dataset.end || "";
+      isActive.checked = btn.dataset.active === "1";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  });
+
+  document.querySelectorAll(".toggleBtn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      const active = btn.dataset.active === "1";
+      togglePeriod(id, active);
+    });
+  });
+
+  saveBtn.addEventListener("click", savePeriod);
+  clearBtn.addEventListener("click", clearForm);
+</script>
+
+{% endblock %}

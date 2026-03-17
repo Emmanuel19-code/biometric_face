@@ -1,0 +1,94 @@
+{% extends "layout.html" %}
+{% set title = "Login Audit Logs" %}
+{% block content %}
+
+<div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+  <div>
+    <div class="text-sm font-semibold">Login Audit Logs</div>
+    <div class="text-sm text-slate-600 mt-1">Track login and logout time for every user account.</div>
+    <div class="text-xs text-slate-500 mt-2">Showing {{ rows|length }} record(s).</div>
+  </div>
+
+  <form method="GET" action="{{ url_for('web.login_audit_logs_page') }}" class="mt-5 grid grid-cols-1 md:grid-cols-4 gap-2">
+    <div class="md:col-span-1">
+      <label class="text-xs text-slate-500">User Type</label>
+      <select name="user_type" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="">All users</option>
+        <option value="admin" {% if filters.user_type == 'admin' %}selected{% endif %}>Admin</option>
+        <option value="student" {% if filters.user_type == 'student' %}selected{% endif %}>Student</option>
+      </select>
+    </div>
+
+    <div class="md:col-span-2">
+      <label class="text-xs text-slate-500">Search</label>
+      <input name="q" value="{{ filters.q or '' }}" placeholder="Username, email, or full name"
+             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+    </div>
+
+    <div class="md:col-span-1">
+      <label class="text-xs text-slate-500">Limit</label>
+      <input name="limit" type="number" min="1" max="2000" value="{{ filters.limit or 500 }}"
+             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+    </div>
+
+    <div class="md:col-span-4 flex flex-col sm:flex-row sm:flex-wrap gap-2">
+      <button class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-semibold hover:bg-brand-700" type="submit">
+        Apply Filters
+      </button>
+      <a href="{{ url_for('web.login_audit_logs_page') }}"
+         class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50 text-center">
+        Clear
+      </a>
+    </div>
+  </form>
+
+  {% if rows and rows|length > 0 %}
+  <div class="mt-5 -mx-4 sm:mx-0 overflow-x-auto">
+    <table class="w-full min-w-[1100px] text-sm">
+      <thead class="bg-slate-50 text-slate-600 border-y border-slate-200">
+        <tr>
+          <th class="text-left py-2 px-3">Login Time</th>
+          <th class="text-left py-2 px-3">Logout Time</th>
+          <th class="text-left py-2 px-3">User</th>
+          <th class="text-left py-2 px-3">Type</th>
+          <th class="text-left py-2 px-3">Identifier</th>
+          <th class="text-left py-2 px-3">IP</th>
+          <th class="text-left py-2 px-3">User Agent</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y bg-white">
+        {% for r in rows %}
+        <tr>
+          <td class="py-2 px-3 whitespace-nowrap">{{ r.login_at.strftime('%Y-%m-%d %H:%M:%S') if r.login_at else 'N/A' }}</td>
+          <td class="py-2 px-3 whitespace-nowrap">
+            {% if r.logout_at %}
+              {{ r.logout_at.strftime('%Y-%m-%d %H:%M:%S') }}
+            {% else %}
+              <span class="px-2 py-1 rounded-full text-xs bg-amber-50 text-amber-700">Active session</span>
+            {% endif %}
+          </td>
+          <td class="py-2 px-3">{{ r.full_name or 'N/A' }}</td>
+          <td class="py-2 px-3">
+            <span class="px-2 py-1 rounded-full text-xs {% if r.user_type == 'admin' %}bg-brand-50 text-brand-700{% else %}bg-emerald-50 text-emerald-700{% endif %}">
+              {{ (r.user_type or 'unknown')|upper }}
+            </span>
+          </td>
+          <td class="py-2 px-3">
+            <div class="font-medium">{{ r.username or 'N/A' }}</div>
+            <div class="text-xs text-slate-500">{{ r.email or '' }}</div>
+          </td>
+          <td class="py-2 px-3">{{ r.ip_address or '-' }}</td>
+          <td class="py-2 px-3 text-xs text-slate-500">{{ r.user_agent or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="mt-5 rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">
+    No login audit records found.
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

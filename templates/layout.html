@@ -32,15 +32,19 @@
       'web.attendance_logs_page': '/attendance/logs',
       'web.class_attendance_page': '/class/attendance',
       'web.class_attendance_logs_page': '/class/attendance/logs',
+      'web.lecturer_teaching_scope_page': '/lecturer/teaching-scope',
       'web.session_setup_page': '/admin/session-setup',
       'web.halls_setup_page': '/admin/halls/setup',
       'web.course_catalog_page': '/admin/courses/setup',
       'web.academic_years_page': '/admin/academic-years/manage',
       'web.semester_control_page': '/admin/semester-control',
       'web.lecturer_course_assignments_page': '/admin/lecturer-courses/manage',
+      'web.exam_periods_page': '/admin/exam-periods/manage',
       'web.add_lecturer_page': '/admin/lecturers/new',
       'web.add_invigilator_page': '/admin/lecturers/new',
       'web.departments_page': '/admin/departments/manage',
+      'web.system_status_page': '/admin/system-status',
+      'web.login_audit_logs_page': '/admin/audit/login-logs',
       'web.logout_page': '/logout',
       'web.login_page': '/login'
     } %}
@@ -113,6 +117,9 @@
           {% if role in ['lecturer', 'admin', 'super_admin'] %}
             <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-5 mb-2">Class Attendance</div>
             {{ nav_link('web.class_attendance_page', 'Mark Attendance', 'C') }}
+            {% if role in ['lecturer'] %}
+            {{ nav_link('web.lecturer_teaching_scope_page', 'My Teaching Scope', 'Q') }}
+            {% endif %}
             {{ nav_link('web.class_attendance_logs_page', 'Class Logs', 'L') }}
           {% endif %}
 
@@ -124,8 +131,11 @@
             {{ nav_link('web.departments_page', 'Departments', 'D') }}
             {{ nav_link('web.academic_years_page', 'Academic Years', 'Y') }}
             {{ nav_link('web.semester_control_page', 'Semester Control', 'M') }}
+            {{ nav_link('web.exam_periods_page', 'Exam Periods', 'X') }}
             {{ nav_link('web.lecturer_course_assignments_page', 'Lecturer Courses', 'R') }}
             {{ nav_link('web.add_lecturer_page', 'Add Lecturer', 'A') }}
+            {{ nav_link('web.login_audit_logs_page', 'Login Audit Logs', 'G') }}
+            {{ nav_link('web.system_status_page', 'System Status', 'Z') }}
           {% endif %}
 
           <div class="mt-6 px-3">

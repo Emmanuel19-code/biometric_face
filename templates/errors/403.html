@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+{% set title = "Access Restricted" %}
+{% block content %}
+
+<div class="w-full max-w-3xl mx-auto">
+  <div class="relative overflow-hidden rounded-3xl border border-rose-200 bg-gradient-to-br from-rose-50 via-white to-amber-50 shadow-sm">
+    <div class="absolute -top-16 -right-16 h-48 w-48 rounded-full bg-rose-100/70 blur-2xl"></div>
+    <div class="absolute -bottom-20 -left-16 h-56 w-56 rounded-full bg-amber-100/80 blur-2xl"></div>
+
+    <div class="relative p-6 sm:p-10">
+      <div class="inline-flex items-center rounded-full border border-rose-200 bg-white px-3 py-1 text-xs font-semibold tracking-wide text-rose-700">
+        Access Restricted
+      </div>
+
+      <h1 class="mt-4 text-2xl sm:text-3xl font-extrabold text-slate-900">
+        You cannot access this page right now
+      </h1>
+      <p class="mt-3 text-sm sm:text-base text-slate-600">
+        {{ message or "You do not have permission to access this page." }}
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <a href="{{ url_for('web.dashboard_page') }}"
+           class="inline-flex items-center justify-center rounded-xl bg-brand-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-brand-700">
+          Go to Dashboard
+        </a>
+        {% if (session.get('role') or '') in ['admin', 'super_admin'] %}
+        <a href="{{ url_for('web.exam_periods_page') }}"
+           class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          Manage Exam Periods
+        </a>
+        {% else %}
+        <a href="{{ url_for('web.all_sessions_page') }}"
+           class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          View Sessions
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

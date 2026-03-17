@@ -131,6 +131,30 @@ def _init_sqlserver_schema():
         "IF COL_LENGTH('admins', 'must_change_password') IS NULL ALTER TABLE admins ADD must_change_password BIT NOT NULL CONSTRAINT DF_admins_must_change_password DEFAULT 0;",
         "IF COL_LENGTH('admins', 'profile_photo') IS NULL ALTER TABLE admins ADD profile_photo NVARCHAR(MAX) NULL;",
         """
+        IF OBJECT_ID('login_audit_logs', 'U') IS NULL
+        CREATE TABLE login_audit_logs (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            user_type NVARCHAR(20) NOT NULL,
+            user_id INT NOT NULL,
+            username NVARCHAR(120) NULL,
+            email NVARCHAR(160) NULL,
+            full_name NVARCHAR(200) NULL,
+            login_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+            logout_at DATETIME2 NULL,
+            ip_address NVARCHAR(64) NULL,
+            user_agent NVARCHAR(500) NULL
+        );
+        """,
+        "IF COL_LENGTH('login_audit_logs', 'username') IS NULL ALTER TABLE login_audit_logs ADD username NVARCHAR(120) NULL;",
+        "IF COL_LENGTH('login_audit_logs', 'email') IS NULL ALTER TABLE login_audit_logs ADD email NVARCHAR(160) NULL;",
+        "IF COL_LENGTH('login_audit_logs', 'full_name') IS NULL ALTER TABLE login_audit_logs ADD full_name NVARCHAR(200) NULL;",
+        "IF COL_LENGTH('login_audit_logs', 'login_at') IS NULL ALTER TABLE login_audit_logs ADD login_at DATETIME2 NOT NULL CONSTRAINT DF_login_audit_logs_login_at DEFAULT SYSUTCDATETIME();",
+        "IF COL_LENGTH('login_audit_logs', 'logout_at') IS NULL ALTER TABLE login_audit_logs ADD logout_at DATETIME2 NULL;",
+        "IF COL_LENGTH('login_audit_logs', 'ip_address') IS NULL ALTER TABLE login_audit_logs ADD ip_address NVARCHAR(64) NULL;",
+        "IF COL_LENGTH('login_audit_logs', 'user_agent') IS NULL ALTER TABLE login_audit_logs ADD user_agent NVARCHAR(500) NULL;",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_login_audit_user_type_id' AND object_id = OBJECT_ID('login_audit_logs')) CREATE INDEX idx_login_audit_user_type_id ON login_audit_logs(user_type, user_id);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_login_audit_login_at' AND object_id = OBJECT_ID('login_audit_logs')) CREATE INDEX idx_login_audit_login_at ON login_audit_logs(login_at DESC);",
+        """
         IF OBJECT_ID('students', 'U') IS NULL
         CREATE TABLE students (
             id INT IDENTITY(1,1) PRIMARY KEY,
@@ -142,6 +166,7 @@ def _init_sqlserver_schema():
             must_change_password BIT NOT NULL DEFAULT 1,
             profile_photo NVARCHAR(MAX) NULL,
             admission_academic_year NVARCHAR(40) NULL,
+            date_of_birth DATE NULL,
             phone NVARCHAR(20) NULL,
             department NVARCHAR(100) NULL,
             course NVARCHAR(100) NULL,
@@ -156,6 +181,31 @@ def _init_sqlserver_schema():
         "IF COL_LENGTH('students', 'must_change_password') IS NULL ALTER TABLE students ADD must_change_password BIT NOT NULL CONSTRAINT DF_students_must_change_password DEFAULT 1;",
         "IF COL_LENGTH('students', 'profile_photo') IS NULL ALTER TABLE students ADD profile_photo NVARCHAR(MAX) NULL;",
         "IF COL_LENGTH('students', 'admission_academic_year') IS NULL ALTER TABLE students ADD admission_academic_year NVARCHAR(40) NULL;",
+        "IF COL_LENGTH('students', 'date_of_birth') IS NULL ALTER TABLE students ADD date_of_birth DATE NULL;",
+        """
+        IF OBJECT_ID('exam_periods', 'U') IS NULL
+        CREATE TABLE exam_periods (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            period_name NVARCHAR(120) NOT NULL,
+            period_type NVARCHAR(20) NOT NULL,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            is_active BIT NOT NULL DEFAULT 1,
+            created_by INT NULL,
+            created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT FK_exam_periods_created_by FOREIGN KEY (created_by) REFERENCES admins(id)
+        );
+        """,
+        "IF COL_LENGTH('exam_periods', 'period_name') IS NULL ALTER TABLE exam_periods ADD period_name NVARCHAR(120) NOT NULL CONSTRAINT DF_exam_periods_period_name DEFAULT 'Exam Period';",
+        "IF COL_LENGTH('exam_periods', 'period_type') IS NULL ALTER TABLE exam_periods ADD period_type NVARCHAR(20) NOT NULL CONSTRAINT DF_exam_periods_period_type DEFAULT 'EXAMS';",
+        "IF COL_LENGTH('exam_periods', 'start_date') IS NULL ALTER TABLE exam_periods ADD start_date DATE NOT NULL CONSTRAINT DF_exam_periods_start_date DEFAULT CAST(SYSUTCDATETIME() AS DATE);",
+        "IF COL_LENGTH('exam_periods', 'end_date') IS NULL ALTER TABLE exam_periods ADD end_date DATE NOT NULL CONSTRAINT DF_exam_periods_end_date DEFAULT CAST(SYSUTCDATETIME() AS DATE);",
+        "IF COL_LENGTH('exam_periods', 'is_active') IS NULL ALTER TABLE exam_periods ADD is_active BIT NOT NULL CONSTRAINT DF_exam_periods_is_active DEFAULT 1;",
+        "IF COL_LENGTH('exam_periods', 'created_by') IS NULL ALTER TABLE exam_periods ADD created_by INT NULL;",
+        "IF COL_LENGTH('exam_periods', 'created_at') IS NULL ALTER TABLE exam_periods ADD created_at DATETIME2 NOT NULL CONSTRAINT DF_exam_periods_created_at DEFAULT SYSUTCDATETIME();",
+        "IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_exam_periods_created_by') ALTER TABLE exam_periods ADD CONSTRAINT FK_exam_periods_created_by FOREIGN KEY (created_by) REFERENCES admins(id);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_exam_periods_dates' AND object_id = OBJECT_ID('exam_periods')) CREATE INDEX idx_exam_periods_dates ON exam_periods(start_date, end_date);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_exam_periods_active' AND object_id = OBJECT_ID('exam_periods')) CREATE INDEX idx_exam_periods_active ON exam_periods(is_active);",
         """
         IF OBJECT_ID('exam_halls', 'U') IS NULL
         CREATE TABLE exam_halls (
@@ -661,6 +711,29 @@ def init_db_schema():
         "CREATE INDEX IF NOT EXISTS idx_admins_username ON admins (username);",
         "CREATE INDEX IF NOT EXISTS idx_admins_email ON admins (email);",
         """
+        CREATE TABLE IF NOT EXISTS login_audit_logs (
+            id SERIAL PRIMARY KEY,
+            user_type VARCHAR(20) NOT NULL,
+            user_id INTEGER NOT NULL,
+            username VARCHAR(120),
+            email VARCHAR(160),
+            full_name VARCHAR(200),
+            login_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            logout_at TIMESTAMP NULL,
+            ip_address VARCHAR(64),
+            user_agent VARCHAR(500)
+        );
+        """,
+        "ALTER TABLE login_audit_logs ADD COLUMN IF NOT EXISTS username VARCHAR(120);",
+        "ALTER TABLE login_audit_logs ADD COLUMN IF NOT EXISTS email VARCHAR(160);",
+        "ALTER TABLE login_audit_logs ADD COLUMN IF NOT EXISTS full_name VARCHAR(200);",
+        "ALTER TABLE login_audit_logs ADD COLUMN IF NOT EXISTS login_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;",
+        "ALTER TABLE login_audit_logs ADD COLUMN IF NOT EXISTS logout_at TIMESTAMP NULL;",
+        "ALTER TABLE login_audit_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(64);",
+        "ALTER TABLE login_audit_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR(500);",
+        "CREATE INDEX IF NOT EXISTS idx_login_audit_user_type_id ON login_audit_logs (user_type, user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_login_audit_login_at ON login_audit_logs (login_at DESC);",
+        """
         CREATE TABLE IF NOT EXISTS students (
             id SERIAL PRIMARY KEY,
             student_id VARCHAR(50) UNIQUE NOT NULL,
@@ -671,6 +744,7 @@ def init_db_schema():
             must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
             profile_photo TEXT,
             admission_academic_year VARCHAR(40),
+            date_of_birth DATE,
             phone VARCHAR(20),
             department VARCHAR(100),
             course VARCHAR(100),
@@ -685,8 +759,30 @@ def init_db_schema():
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT TRUE;",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS profile_photo TEXT;",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS admission_academic_year VARCHAR(40);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS date_of_birth DATE;",
         "CREATE INDEX IF NOT EXISTS idx_students_student_id ON students (student_id);",
         "CREATE INDEX IF NOT EXISTS idx_students_email ON students (email);",
+        """
+        CREATE TABLE IF NOT EXISTS exam_periods (
+            id SERIAL PRIMARY KEY,
+            period_name VARCHAR(120) NOT NULL,
+            period_type VARCHAR(20) NOT NULL,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_by INTEGER REFERENCES admins(id),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        "ALTER TABLE exam_periods ADD COLUMN IF NOT EXISTS period_name VARCHAR(120) NOT NULL DEFAULT 'Exam Period';",
+        "ALTER TABLE exam_periods ADD COLUMN IF NOT EXISTS period_type VARCHAR(20) NOT NULL DEFAULT 'EXAMS';",
+        "ALTER TABLE exam_periods ADD COLUMN IF NOT EXISTS start_date DATE NOT NULL DEFAULT CURRENT_DATE;",
+        "ALTER TABLE exam_periods ADD COLUMN IF NOT EXISTS end_date DATE NOT NULL DEFAULT CURRENT_DATE;",
+        "ALTER TABLE exam_periods ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;",
+        "ALTER TABLE exam_periods ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES admins(id);",
+        "ALTER TABLE exam_periods ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;",
+        "CREATE INDEX IF NOT EXISTS idx_exam_periods_dates ON exam_periods (start_date, end_date);",
+        "CREATE INDEX IF NOT EXISTS idx_exam_periods_active ON exam_periods (is_active);",
         """
         CREATE TABLE IF NOT EXISTS exam_halls (
             id SERIAL PRIMARY KEY,

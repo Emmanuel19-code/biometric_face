@@ -1,0 +1,66 @@
+{% extends "layout.html" %}
+{% set title = "My Teaching Scope" %}
+{% block content %}
+
+<div class="space-y-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">My Teaching Scope</div>
+    <div class="text-sm text-slate-600 mt-1">Departments, programs, levels (e.g. 100), and courses assigned to you.</div>
+
+    <div class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm">
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Departments</div>
+        <div class="font-semibold mt-1">{{ summary.departments or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Programs</div>
+        <div class="font-semibold mt-1">{{ summary.programs or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Levels</div>
+        <div class="font-semibold mt-1">{{ summary.levels or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Courses</div>
+        <div class="font-semibold mt-1">{{ summary.courses or 0 }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">Assigned Courses by Program/Level</div>
+    <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+      <table class="w-full min-w-[760px] text-sm">
+        <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+          <tr>
+            <th class="text-left py-2 px-3">Department</th>
+            <th class="text-left py-2 px-3">Program</th>
+            <th class="text-left py-2 px-3">Level</th>
+            <th class="text-left py-2 px-3">Semester</th>
+            <th class="text-left py-2 px-3">Course Code</th>
+            <th class="text-left py-2 px-3">Course Title</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y">
+          {% for r in rows %}
+          <tr>
+            <td class="py-2 px-3">{{ r.department_name or 'Unassigned' }}</td>
+            <td class="py-2 px-3">{{ r.program_name or '-' }}</td>
+            <td class="py-2 px-3">{{ r.level_name or '-' }}</td>
+            <td class="py-2 px-3">{{ r.semester_no or '-' }}</td>
+            <td class="py-2 px-3">{{ r.course_code }}</td>
+            <td class="py-2 px-3">{{ r.course_title or '-' }}</td>
+          </tr>
+          {% endfor %}
+          {% if not rows %}
+          <tr>
+            <td colspan="6" class="py-6 text-center text-slate-500">No teaching assignments found.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

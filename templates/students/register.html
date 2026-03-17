@@ -289,6 +289,7 @@
   const programme = document.getElementById("programme");
   const level = document.getElementById("level");
   const academicYear = document.getElementById("academicYear");
+  const dob = document.getElementById("dob");
   const email = document.getElementById("email");
   const phone = document.getElementById("phone");
 
@@ -357,6 +358,29 @@
 
     if (!email.value.trim()) {
       setBadge("bad", "Email is required.");
+      return false;
+    }
+    if (!dob.value.trim()) {
+      setBadge("bad", "Date of birth is required.");
+      return false;
+    }
+    const today = new Date();
+    const birthDate = new Date(dob.value);
+    if (Number.isNaN(birthDate.getTime())) {
+      setBadge("bad", "Invalid date of birth.");
+      return false;
+    }
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const birthOnly = new Date(birthDate.getFullYear(), birthDate.getMonth(), birthDate.getDate());
+    if (birthOnly >= todayOnly) {
+      setBadge("bad", "Date of birth must be before today.");
+      return false;
+    }
+    let age = todayOnly.getFullYear() - birthOnly.getFullYear();
+    const m = todayOnly.getMonth() - birthOnly.getMonth();
+    if (m < 0 || (m === 0 && todayOnly.getDate() < birthOnly.getDate())) age -= 1;
+    if (age < 15) {
+      setBadge("bad", "Student must be at least 15 years old.");
       return false;
     }
     return ok;
@@ -623,6 +647,7 @@
       course: programme.value.trim(),
       year_level: level.value.trim(),
       admission_academic_year: academicYear.value.trim(),
+      dob: dob.value.trim(),
       face_images: faceCaptures.map((x) => x.dataUrl)
     };
 

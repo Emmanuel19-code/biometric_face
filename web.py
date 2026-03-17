@@ -538,9 +538,16 @@ def student_portal_required(fn):
 def _lecturer_courses(lecturer_id):
     rows = db_utils.fetch_all(
         """
-        SELECT course_code, course_title
-        FROM lecturer_courses
-        WHERE lecturer_id = %s AND is_active = TRUE
+        SELECT
+            lc.course_code,
+            COALESCE(NULLIF(lc.course_title, ''), MIN(plc.course_title)) AS course_title
+        FROM lecturer_courses lc
+        LEFT JOIN program_level_courses plc
+               ON UPPER(plc.course_code) = UPPER(lc.course_code)
+              AND plc.is_active = TRUE
+        WHERE lc.lecturer_id = %s
+          AND lc.is_active = TRUE
+        GROUP BY lc.course_code, lc.course_title
         ORDER BY course_code ASC
         """,
         (lecturer_id,),
@@ -602,6 +609,7 @@ def inject_template_helpers():
         "web.session_setup_page": "/admin/session-setup",
         "web.halls_setup_page": "/admin/halls/setup",
         "web.course_catalog_page": "/admin/courses/setup",
+        "web.add_program_course_page": "/admin/program-courses/add",
         "web.departments_page": "/admin/departments/manage",
         "web.academic_years_page": "/admin/academic-years/manage",
         "web.semester_control_page": "/admin/semester-control",
@@ -1088,6 +1096,142 @@ def student_logout():
 @web_bp.get("/dashboard", endpoint="dashboard_page")
 @login_required
 def dashboard():
+    if _has_role("lecturer"):
+        admin_id = int(session.get("admin_id"))
+        scope_rows = _lecturer_teaching_scope_rows(admin_id)
+        assigned_course_map = {}
+        for row in scope_rows:
+            code = str(row.get("course_code") or "").strip().upper()
+            if not code:
+                continue
+            title = str(row.get("course_title") or "").strip()
+            if code not in assigned_course_map:
+                assigned_course_map[code] = title
+            elif not assigned_course_map[code] and title:
+                assigned_course_map[code] = title
+        assigned_course_codes = sorted(
+            {
+                str(r.get("course_code") or "").strip().upper()
+                for r in scope_rows
+                if str(r.get("course_code") or "").strip()
+            }
+        )
+        assigned_courses = [
+            {"course_code": code, "course_title": assigned_course_map.get(code) or ""}
+            for code in assigned_course_codes
+        ]
+        department_names = sorted(
+            {
+                str(r.get("department_name") or "").strip()
+                for r in scope_rows
+                if str(r.get("department_name") or "").strip()
+            }
+        )
+        program_names = sorted(
+            {
+                str(r.get("program_name") or "").strip()
+                for r in scope_rows
+                if str(r.get("program_name") or "").strip()
+            }
+        )
+        level_names = sorted(
+            {
+                str(r.get("level_name") or "").strip()
+                for r in scope_rows
+                if str(r.get("level_name") or "").strip()
+            }
+        )
+
+        today_class_count = db_utils.fetch_one(
+            """
+            SELECT COUNT(*) AS c
+            FROM class_attendances
+            WHERE lecturer_id = %s
+              AND attendance_date = CURRENT_DATE
+            """,
+            (admin_id,),
+        )
+        upcoming_classes_count = db_utils.fetch_one(
+            """
+            SELECT COUNT(*) AS c
+            FROM lecturer_courses
+            WHERE lecturer_id = %s
+              AND is_active = TRUE
+            """,
+            (admin_id,),
+        )
+
+        exam_verified_today = {"c": 0}
+        recent_exam_activities = []
+        if assigned_course_codes:
+            placeholders = ", ".join(["%s"] * len(assigned_course_codes))
+            exam_verified_today = db_utils.fetch_one(
+                f"""
+                SELECT COUNT(*) AS c
+                FROM verification_logs vl
+                INNER JOIN examination_sessions es ON es.id = vl.session_id
+                WHERE DATE(vl.timestamp) = CURRENT_DATE
+                  AND vl.outcome = 'SUCCESS'
+                  AND UPPER(COALESCE(es.course_code, '')) IN ({placeholders})
+                """,
+                tuple(assigned_course_codes),
+            )
+            recent_exam_activities = db_utils.fetch_all(
+                f"""
+                SELECT
+                    vl.timestamp,
+                    vl.outcome,
+                    s.student_id AS index_no,
+                    s.first_name,
+                    s.last_name,
+                    COALESCE(es.course_code, 'N/A') AS course_code
+                FROM verification_logs vl
+                LEFT JOIN students s ON s.id = vl.student_id
+                INNER JOIN examination_sessions es ON es.id = vl.session_id
+                WHERE UPPER(COALESCE(es.course_code, '')) IN ({placeholders})
+                ORDER BY vl.timestamp DESC
+                LIMIT 10
+                """,
+                tuple(assigned_course_codes),
+            )
+
+        recent_class_rows = db_utils.fetch_all(
+            """
+            SELECT
+                ca.timestamp,
+                ca.course_code,
+                s.student_id AS index_no,
+                s.first_name,
+                s.last_name
+            FROM class_attendances ca
+            INNER JOIN students s ON s.id = ca.student_id
+            WHERE ca.lecturer_id = %s
+            ORDER BY ca.timestamp DESC
+            LIMIT 10
+            """,
+            (admin_id,),
+        )
+
+        return render_template(
+            "dashboard/lecturer.html",
+            title="Lecturer Dashboard",
+            stats={
+                "departments": len(department_names),
+                "programs": len(program_names),
+                "levels": len(level_names),
+                "courses": len(assigned_course_codes),
+                "class_marked_today": int((today_class_count or {}).get("c") or 0),
+                "exam_verified_today": int((exam_verified_today or {}).get("c") or 0),
+                "assigned_courses": int((upcoming_classes_count or {}).get("c") or 0),
+            },
+            departments=department_names,
+            programs=program_names,
+            levels=level_names,
+            assigned_courses=assigned_courses,
+            recent_class_rows=recent_class_rows,
+            recent_exam_activities=recent_exam_activities,
+        )
+
     try:
         student_row = db_utils.fetch_one("SELECT COUNT(*) AS c FROM students")
         sessions_row = db_utils.fetch_one(
@@ -1441,6 +1585,11 @@ def exam_session_page():
 @web_bp.get("/attendance/logs", endpoint="attendance_logs_page")
 @roles_required("invigilator", "lecturer", "admin", "super_admin")
 def attendance_logs_page():
+    if _has_role("lecturer", "invigilator"):
+        active_period = _get_current_open_exam_period()
+        if not active_period:
+            abort(403, description="Exam attendance logs are unavailable. No active exam/midsem period is open.")
+
     session_id = request.args.get("session_id", type=int)
     outcome = str(request.args.get("outcome") or "").strip().upper()
     q = str(request.args.get("q") or "").strip()
@@ -2112,6 +2261,11 @@ def login_audit_logs_page():
 @web_bp.get("/exams/sessions", endpoint="all_sessions_page")
 @roles_required("invigilator", "lecturer", "admin", "super_admin")
 def all_sessions_page():
+    if _has_role("lecturer", "invigilator"):
+        active_period = _get_current_open_exam_period()
+        if not active_period:
+            abort(403, description="Sessions are unavailable. No active exam/midsem period is open.")
+
     sessions = db_utils.fetch_all(
         """
         SELECT id, session_name, course_code, venue, start_time, end_time, is_active
@@ -2783,7 +2937,14 @@ def session_setup_save_invigilators(session_id):
 @web_bp.get("/admin/courses/setup", endpoint="course_catalog_page")
 @roles_required("admin", "super_admin")
 def course_catalog_page():
-    return render_template("admin/course_catalog.html", title="Program Course Setup")
+    return render_template("admin/course_catalog.html", title="Program Setup")
+
+
+@web_bp.get("/admin/program-courses/add")
+@web_bp.get("/admin/program-courses/add", endpoint="add_program_course_page")
+@roles_required("admin", "super_admin")
+def add_program_course_page():
+    return render_template("admin/add_program_course.html", title="Add Program Course")
 
 
 @web_bp.get("/admin/academic-years/manage")

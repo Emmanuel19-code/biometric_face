@@ -1,0 +1,240 @@
+{% extends "layout.html" %}
+{% set title = "Add Program Course" %}
+{% block content %}
+
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+  <div class="xl:col-span-1 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">Add Course to Program</div>
+    <div class="text-xs text-slate-500 mt-1">Use this page to add a course under a specific program, level, and semester.</div>
+
+    <form id="addCourseForm" class="mt-4 space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Program</label>
+        <select id="programName" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select program</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Level</label>
+        <select id="levelName" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select level</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Semester</label>
+        <select id="semesterNo" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select semester</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Course Code</label>
+        <input id="courseCode" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+               placeholder="e.g. ITM 401" required />
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Course Title</label>
+        <input id="courseTitle" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+               placeholder="e.g. Information Security" required />
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-500">Credit Units (optional)</label>
+        <input id="creditUnits" type="number" min="0" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+               placeholder="e.g. 3" />
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-2">
+        <button type="submit" class="rounded-xl bg-brand-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-brand-700">
+          Save Course
+        </button>
+        <button id="clearBtn" type="button" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold hover:bg-slate-50">
+          Clear
+        </button>
+      </div>
+      <div id="formMsg" class="text-sm text-slate-500"></div>
+    </form>
+  </div>
+
+  <div class="xl:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">Recent Courses for Selected Program</div>
+    <div class="text-xs text-slate-500 mt-1">Refreshes after saving a course.</div>
+
+    <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+      <table class="w-full min-w-[760px] text-sm">
+        <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+          <tr>
+            <th class="text-left py-2 px-3">Level</th>
+            <th class="text-left py-2 px-3">Semester</th>
+            <th class="text-left py-2 px-3">Course Code</th>
+            <th class="text-left py-2 px-3">Course Title</th>
+            <th class="text-left py-2 px-3">Units</th>
+          </tr>
+        </thead>
+        <tbody id="courseRows" class="divide-y">
+          <tr><td colspan="5" class="py-6 text-center text-slate-500">Select a program to view courses.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  const form = document.getElementById("addCourseForm");
+  const formMsg = document.getElementById("formMsg");
+  const programName = document.getElementById("programName");
+  const levelName = document.getElementById("levelName");
+  const semesterNo = document.getElementById("semesterNo");
+  const courseCode = document.getElementById("courseCode");
+  const courseTitle = document.getElementById("courseTitle");
+  const creditUnits = document.getElementById("creditUnits");
+  const clearBtn = document.getElementById("clearBtn");
+  const courseRows = document.getElementById("courseRows");
+
+  const programMeta = {};
+
+  function setMsg(message, ok = false) {
+    formMsg.className = ok ? "text-sm text-emerald-700" : "text-sm text-rose-700";
+    formMsg.textContent = message || "";
+  }
+
+  function makeRange(start, end, step = 1) {
+    const out = [];
+    for (let i = start; i <= end; i += step) out.push(i);
+    return out;
+  }
+
+  function setOptions(selectEl, values, placeholder) {
+    selectEl.innerHTML = "";
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = placeholder;
+    selectEl.appendChild(first);
+    values.forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = String(v);
+      opt.textContent = String(v);
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function updateProgramDependentFields() {
+    const key = String(programName.value || "").toLowerCase();
+    const meta = programMeta[key];
+    if (!meta) {
+      setOptions(levelName, [], "Select level");
+      setOptions(semesterNo, [], "Select semester");
+      return;
+    }
+    const duration = Number(meta.duration_years || 4);
+    const semPerYear = Number(meta.semesters_per_year || 2);
+    const levels = makeRange(1, Math.max(1, duration)).map((n) => n * 100);
+    const sems = makeRange(1, Math.max(1, semPerYear));
+    setOptions(levelName, levels, "Select level");
+    setOptions(semesterNo, sems, "Select semester");
+  }
+
+  function renderCourses(rows) {
+    if (!rows.length) {
+      courseRows.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-slate-500">No courses for selected program.</td></tr>';
+      return;
+    }
+    courseRows.innerHTML = rows.map((r) => `
+      <tr>
+        <td class="py-2 px-3">${r.level_name || "-"}</td>
+        <td class="py-2 px-3">${r.semester_no || "-"}</td>
+        <td class="py-2 px-3">${r.course_code || "-"}</td>
+        <td class="py-2 px-3">${r.course_title || "-"}</td>
+        <td class="py-2 px-3">${r.credit_units ?? "-"}</td>
+      </tr>
+    `).join("");
+  }
+
+  async function loadPrograms() {
+    const res = await fetch("/admin/programs");
+    const body = await res.json().catch(() => ({}));
+    const rows = Array.isArray(body.programs) ? body.programs : [];
+    programName.innerHTML = '<option value="">Select program</option>';
+    Object.keys(programMeta).forEach((k) => delete programMeta[k]);
+
+    rows.forEach((p) => {
+      if (!p.is_active) return;
+      const name = String(p.program_name || "");
+      if (!name) return;
+      programMeta[name.toLowerCase()] = p;
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      programName.appendChild(opt);
+    });
+    updateProgramDependentFields();
+  }
+
+  async function loadProgramCourses() {
+    const program = String(programName.value || "").trim();
+    if (!program) {
+      renderCourses([]);
+      return;
+    }
+    const params = new URLSearchParams({ program });
+    const res = await fetch(`/admin/courses?${params.toString()}`);
+    const body = await res.json().catch(() => ({}));
+    const rows = Array.isArray(body.courses) ? body.courses : [];
+    renderCourses(rows);
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      program_name: String(programName.value || "").trim(),
+      level_name: String(levelName.value || "").trim(),
+      semester_no: Number(semesterNo.value || 0),
+      course_code: String(courseCode.value || "").trim().toUpperCase(),
+      course_title: String(courseTitle.value || "").trim(),
+      credit_units: creditUnits.value === "" ? null : Number(creditUnits.value),
+    };
+
+    if (!payload.program_name || !payload.level_name || !payload.semester_no || !payload.course_code || !payload.course_title) {
+      setMsg("Program, level, semester, course code and course title are required.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/admin/courses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to save course.");
+      setMsg(body.message || "Course saved.", true);
+      courseCode.value = "";
+      courseTitle.value = "";
+      creditUnits.value = "";
+      await loadProgramCourses();
+    } catch (err) {
+      setMsg(err.message || "Failed to save course.");
+    }
+  });
+
+  clearBtn.addEventListener("click", () => {
+    courseCode.value = "";
+    courseTitle.value = "";
+    creditUnits.value = "";
+    setMsg("", true);
+  });
+
+  programName.addEventListener("change", async () => {
+    updateProgramDependentFields();
+    await loadProgramCourses();
+  });
+
+  (async () => {
+    await loadPrograms();
+  })();
+</script>
+
+{% endblock %}

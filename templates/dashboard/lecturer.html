@@ -1,0 +1,46 @@
+{% extends "layout.html" %}
+{% set title = "Lecturer Dashboard" %}
+{% block content %}
+
+<div class="space-y-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">Lecturer Dashboard</div>
+    <div class="text-sm text-slate-600 mt-1">Overview of your assigned departments, programs, levels and courses.</div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+      <div class="text-xs text-slate-500">Departments</div>
+      <div class="text-2xl font-extrabold mt-1">{{ stats.departments or 0 }}</div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+      <div class="text-xs text-slate-500">Programs</div>
+      <div class="text-2xl font-extrabold mt-1">{{ stats.programs or 0 }}</div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+      <div class="text-xs text-slate-500">Levels</div>
+      <div class="text-2xl font-extrabold mt-1">{{ stats.levels or 0 }}</div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+      <div class="text-xs text-slate-500">Courses</div>
+      <div class="text-2xl font-extrabold mt-1">{{ stats.courses or 0 }}</div>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">Assigned Courses</div>
+    <div class="mt-3 flex flex-wrap gap-2">
+      {% for c in assigned_courses %}
+      <span class="inline-flex rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs font-medium">
+        {{ c.course_code }}{% if c.course_title %} - {{ c.course_title }}{% endif %}
+      </span>
+      {% endfor %}
+      {% if not assigned_courses %}
+      <span class="text-sm text-slate-500">No assigned courses yet.</span>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

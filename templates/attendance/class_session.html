@@ -153,6 +153,7 @@
   async function markAttendance() {
     const studentId = (studentIdInput.value || "").trim();
     const courseCode = (courseCodeInput.value || "").trim();
+    const selectedCourseText = (courseCodeInput.options[courseCodeInput.selectedIndex]?.textContent || "").trim();
     if (!courseCode) {
       resultText.textContent = "Select a course first.";
       return;
@@ -176,7 +177,7 @@
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || "Attendance verification failed");
       const confidence = Number(body.confidence || 0).toFixed(2);
-      resultText.textContent = `Marked successfully (confidence ${confidence}).`;
+      resultText.textContent = `Marked successfully for ${selectedCourseText || courseCode} (confidence ${confidence}).`;
     } catch (err) {
       resultText.textContent = err.message || "Attendance verification failed";
     }

@@ -40,6 +40,7 @@
       'web.lecturer_course_assignments_page': '/admin/lecturer-courses/manage',
       'web.add_lecturer_page': '/admin/lecturers/new',
       'web.add_invigilator_page': '/admin/lecturers/new',
+      'web.departments_page': '/admin/departments/manage',
       'web.logout_page': '/logout',
       'web.login_page': '/login'
     } %}
@@ -53,7 +54,6 @@
               {% else %}
                 hover:bg-brand-50 hover:text-brand-700
               {% endif %}">
-      <span class="text-slate-500">{{ icon }}</span>
       <span class="text-sm font-medium">{{ label }}</span>
     </a>
   {% endmacro %}
@@ -121,6 +121,7 @@
             {{ nav_link('web.session_setup_page', 'Session Setup', 'S') }}
             {{ nav_link('web.halls_setup_page', 'Exam Halls', 'H') }}
             {{ nav_link('web.course_catalog_page', 'Program Courses', 'P') }}
+            {{ nav_link('web.departments_page', 'Departments', 'D') }}
             {{ nav_link('web.academic_years_page', 'Academic Years', 'Y') }}
             {{ nav_link('web.semester_control_page', 'Semester Control', 'M') }}
             {{ nav_link('web.lecturer_course_assignments_page', 'Lecturer Courses', 'R') }}

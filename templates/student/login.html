@@ -36,9 +36,13 @@
 
     <div>
       <label class="text-sm font-medium">Password</label>
-      <input name="password" type="password" required
+      <input id="studentPassword" name="password" type="password" required
              class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
              placeholder="Enter your password">
+      <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600">
+        <input id="toggleStudentPassword" type="checkbox" class="rounded border-slate-300">
+        Show password
+      </label>
     </div>
 
     <button class="w-full rounded-xl bg-brand-600 text-white py-3 font-semibold hover:bg-brand-700 transition">
@@ -79,5 +83,15 @@
     </div>
   </div>
 </div>
+
+<script>
+  const studentPassword = document.getElementById("studentPassword");
+  const toggleStudentPassword = document.getElementById("toggleStudentPassword");
+
+  toggleStudentPassword?.addEventListener("change", () => {
+    if (!studentPassword) return;
+    studentPassword.type = toggleStudentPassword.checked ? "text" : "password";
+  });
+</script>
 
 {% endblock %}

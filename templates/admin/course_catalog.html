@@ -15,6 +15,12 @@
                  placeholder="e.g. BSc Information Technology Management" required>
         </div>
         <div>
+          <label class="text-xs text-slate-500">Department</label>
+          <select id="programDepartmentInput" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+            <option value="">Select department</option>
+          </select>
+        </div>
+        <div>
           <label class="text-xs text-slate-500">Duration (Years)</label>
           <input id="durationYearsInput" type="number" min="1" max="10" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                  value="4" required>
@@ -156,6 +162,7 @@
   const btnFilter = document.getElementById("btnFilter");
   const courseBody = document.getElementById("courseBody");
   const levelName = document.getElementById("levelName");
+  const programDepartmentInput = document.getElementById("programDepartmentInput");
   const semesterConfigCache = {};
   const programMetaCache = {};
 
@@ -174,6 +181,7 @@
       <div class="min-w-0">
         <div class="text-sm">${p.program_name}</div>
         <div class="text-[11px] text-slate-500 mt-1">
+          Department: ${p.department_name || "Unassigned"}<br>
           ${p.duration_years || 4} year(s), ${p.semesters_per_year || 2} semester(s)/year
         </div>
         <span class="inline-flex mt-1 px-2 py-0.5 rounded-full text-[11px] ${statusClass}">${statusText}</span>
@@ -234,6 +242,20 @@
     setLevelOptions(levelName, []);
     setLevelOptions(filterLevel, globalLevels, true);
     return programs;
+  }
+
+  async function loadDepartmentsIntoProgramForm() {
+    const res = await fetch("/admin/departments");
+    const data = await res.json().catch(() => ({}));
+    const departments = Array.isArray(data.departments) ? data.departments : [];
+    programDepartmentInput.innerHTML = '<option value="">Select department</option>';
+    departments.forEach((d) => {
+      const opt = document.createElement("option");
+      opt.value = String(d.id || "");
+      opt.textContent = String(d.department_name || "");
+      if (!opt.value || !opt.textContent) return;
+      programDepartmentInput.appendChild(opt);
+    });
   }
 
   function programLevels(durationYears) {
@@ -396,6 +418,7 @@
     e.preventDefault();
     const payload = {
       program_name: document.getElementById("programNameInput").value.trim(),
+      department_id: document.getElementById("programDepartmentInput").value.trim(),
       duration_years: document.getElementById("durationYearsInput").value.trim(),
       semesters_per_year: document.getElementById("semestersPerYearInput").value.trim()
     };
@@ -411,6 +434,7 @@
       programForm.reset();
       document.getElementById("durationYearsInput").value = "4";
       document.getElementById("semestersPerYearInput").value = "2";
+      await loadDepartmentsIntoProgramForm();
       await loadPrograms();
       await loadCourses();
     } catch (err) {
@@ -568,6 +592,7 @@
   });
 
   (async () => {
+    await loadDepartmentsIntoProgramForm();
     await loadPrograms();
     await loadSemesterSettings();
     refreshCourseSemesterOptionsFromSelection();

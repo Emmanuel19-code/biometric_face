@@ -77,12 +77,13 @@
         <p class="mt-1 text-xs text-rose-600 hidden" id="errLevel">Level is required.</p>
       </div>
 
-      <!-- Department -->
       <div>
-        <label class="text-sm font-medium">Department</label>
-        <input id="department" name="department"
-               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
-               placeholder="e.g. Computer Science">
+        <label class="text-sm font-medium">Academic Year <span class="text-rose-600">*</span></label>
+        <select id="academicYear" name="academic_year" required
+                class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+          <option value="">Select academic year</option>
+        </select>
+        <p class="mt-1 text-xs text-rose-600 hidden" id="errAcademicYear">Academic year is required.</p>
       </div>
 
       <!-- Gender -->
@@ -167,7 +168,7 @@
       </div>
 
       <p class="md:col-span-2 text-xs text-slate-500 mt-1">
-        Required: First Name, Last Name, Programme, Level. Index number is generated automatically.
+        Required: First Name, Last Name, Programme, Level, Academic Year. Index number is generated automatically.
       </p>
     </form>
   </div>
@@ -287,14 +288,15 @@
   const indexNo = document.getElementById("indexNo");
   const programme = document.getElementById("programme");
   const level = document.getElementById("level");
+  const academicYear = document.getElementById("academicYear");
   const email = document.getElementById("email");
-  const department = document.getElementById("department");
   const phone = document.getElementById("phone");
 
   const errFirstName = document.getElementById("errFirstName");
   const errLastName = document.getElementById("errLastName");
   const errProgramme = document.getElementById("errProgramme");
   const errLevel = document.getElementById("errLevel");
+  const errAcademicYear = document.getElementById("errAcademicYear");
   const faceCapturesField = document.getElementById("faceCapturesField");
 
   const video = document.getElementById("video");
@@ -349,6 +351,10 @@
     errLevel.classList.toggle("hidden", levelOk);
     ok = ok && levelOk;
 
+    const academicYearOk = academicYear.value.trim().length > 0;
+    errAcademicYear.classList.toggle("hidden", academicYearOk);
+    ok = ok && academicYearOk;
+
     if (!email.value.trim()) {
       setBadge("bad", "Email is required.");
       return false;
@@ -396,8 +402,21 @@
       const res = await fetch("/admin/academic-years");
       const data = await res.json().catch(() => ({}));
       const years = Array.isArray(data.academic_years) ? data.academic_years : [];
+      academicYear.innerHTML = '<option value="">Select academic year</option>';
+      years.forEach((y) => {
+        const label = String(y.year_label || "").trim();
+        if (!label) return;
+        const opt = document.createElement("option");
+        opt.value = label;
+        opt.textContent = y.enrollment_open ? label : `${label} (Enrollment Closed)`;
+        if (!y.enrollment_open) opt.disabled = true;
+        academicYear.appendChild(opt);
+      });
       const current = years.find((y) => y.is_current);
       if (!current) return;
+      if (current.enrollment_open && current.year_label) {
+        academicYear.value = current.year_label;
+      }
       if (current.enrollment_open) {
         setBadge("neutral", `Current academic year: ${current.year_label}. Enrollment is open.`);
       } else {
@@ -601,9 +620,9 @@
       last_name: lastNameValue,
       email: email.value.trim(),
       phone: phone.value.trim(),
-      department: department.value.trim(),
       course: programme.value.trim(),
       year_level: level.value.trim(),
+      admission_academic_year: academicYear.value.trim(),
       face_images: faceCaptures.map((x) => x.dataUrl)
     };
 
@@ -637,6 +656,7 @@
       errLastName.classList.add("hidden");
       errProgramme.classList.add("hidden");
       errLevel.classList.add("hidden");
+      errAcademicYear.classList.add("hidden");
     } catch (error) {
       setBadge("bad", "Unable to reach server.");
       console.error(error);
@@ -658,6 +678,7 @@
     errLastName.classList.add("hidden");
     errProgramme.classList.add("hidden");
     errLevel.classList.add("hidden");
+    errAcademicYear.classList.add("hidden");
     setBadge("neutral", "Form reset.");
   });
 

@@ -12,6 +12,7 @@ from PIL import Image
 from utils import db as db_utils
 from utils.encryption import encrypt_data
 from services.student_service import StudentService
+from config import get_database_backend
 from werkzeug.routing import BuildError
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -377,6 +378,7 @@ def inject_template_helpers():
         "web.session_setup_page": "/admin/session-setup",
         "web.halls_setup_page": "/admin/halls/setup",
         "web.course_catalog_page": "/admin/courses/setup",
+        "web.departments_page": "/admin/departments/manage",
         "web.academic_years_page": "/admin/academic-years/manage",
         "web.semester_control_page": "/admin/semester-control",
         "web.lecturer_course_assignments_page": "/admin/lecturer-courses/manage",
@@ -996,6 +998,19 @@ def register_student_submit():
         if not face_images:
             return jsonify({"error": "No valid face images provided"}), 400
 
+        _ensure_departments_schema()
+        program_department = db_utils.fetch_one(
+            """
+            SELECT d.department_name
+            FROM program_department_map m
+            LEFT JOIN departments d ON d.id = m.department_id
+            WHERE LOWER(m.program_name) = LOWER(%s)
+            LIMIT 1
+            """,
+            (program_row.get("program_name"),),
+        )
+        derived_department = (program_department or {}).get("department_name")
+
         student_service = _get_student_service()
         success, result = student_service.register_student(
             {
@@ -1003,7 +1018,7 @@ def register_student_submit():
                 "last_name": last_name,
                 "email": email,
                 "phone": data.get("phone"),
-                "department": data.get("department"),
+                "department": derived_department,
                 "course": program_row.get("program_name"),
                 "year_level": data.get("year_level"),
                 "admission_academic_year": current_year.get("year_label"),
@@ -1995,6 +2010,344 @@ def semester_control_page():
     return render_template("admin/semester_control.html", title="Semester Control")
 
 
+def _ensure_departments_schema():
+    backend = get_database_backend()
+    if backend == "sqlserver":
+        db_utils.execute(
+            """
+            IF OBJECT_ID('departments', 'U') IS NULL
+            CREATE TABLE departments (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                department_name NVARCHAR(120) NOT NULL UNIQUE,
+                is_active BIT NOT NULL DEFAULT 1,
+                created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            )
+            """
+        )
+        db_utils.execute(
+            """
+            IF OBJECT_ID('program_department_map', 'U') IS NULL
+            CREATE TABLE program_department_map (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                program_name NVARCHAR(120) NOT NULL UNIQUE,
+                department_id INT NULL,
+                created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                CONSTRAINT FK_program_department_map_department
+                    FOREIGN KEY (department_id) REFERENCES departments(id)
+            )
+            """
+        )
+    else:
+        db_utils.execute(
+            """
+            CREATE TABLE IF NOT EXISTS departments (
+                id SERIAL PRIMARY KEY,
+                department_name VARCHAR(120) NOT NULL UNIQUE,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        db_utils.execute(
+            """
+            CREATE TABLE IF NOT EXISTS program_department_map (
+                id SERIAL PRIMARY KEY,
+                program_name VARCHAR(120) NOT NULL UNIQUE,
+                department_id INTEGER NULL REFERENCES departments(id) ON DELETE SET NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+
+@web_bp.get("/admin/departments/manage")
+@web_bp.get("/admin/departments/manage", endpoint="departments_page")
+@roles_required("admin", "super_admin")
+def departments_page():
+    return render_template("admin/departments.html", title="Departments & Programmes")
+
+
+@web_bp.get("/admin/departments")
+@roles_required("admin", "super_admin")
+def list_departments():
+    _ensure_departments_schema()
+    dept_rows = db_utils.fetch_all(
+        """
+        SELECT id, department_name, is_active
+        FROM departments
+        ORDER BY department_name ASC
+        """
+    )
+    program_rows = db_utils.fetch_all(
+        """
+        SELECT
+            p.id,
+            p.program_name AS programme_name,
+            p.duration_years,
+            p.is_active,
+            m.department_id
+        FROM academic_programs p
+        LEFT JOIN program_department_map m
+            ON LOWER(m.program_name) = LOWER(p.program_name)
+        ORDER BY p.program_name ASC
+        """
+    )
+
+    grouped = []
+    for d in dept_rows:
+        programmes = [
+            {
+                "id": r.get("id"),
+                "programme_name": r.get("programme_name"),
+                "duration_years": int(r.get("duration_years") or 4),
+                "is_active": bool(r.get("is_active", True)),
+            }
+            for r in program_rows
+            if r.get("department_id") == d.get("id")
+        ]
+        grouped.append(
+            {
+                "id": d.get("id"),
+                "department_name": d.get("department_name"),
+                "is_active": bool(d.get("is_active", True)),
+                "is_virtual": False,
+                "programmes": programmes,
+            }
+        )
+
+    unassigned_programmes = [
+        {
+            "id": r.get("id"),
+            "programme_name": r.get("programme_name"),
+            "duration_years": int(r.get("duration_years") or 4),
+            "is_active": bool(r.get("is_active", True)),
+        }
+        for r in program_rows
+        if not r.get("department_id")
+    ]
+    if unassigned_programmes:
+        grouped.append(
+            {
+                "id": "",
+                "department_name": "Unassigned Programmes",
+                "is_active": True,
+                "is_virtual": True,
+                "programmes": unassigned_programmes,
+            }
+        )
+
+    return jsonify({"departments": grouped}), 200
+
+
+@web_bp.post("/admin/departments")
+@roles_required("admin", "super_admin")
+def create_department():
+    _ensure_departments_schema()
+    payload = request.get_json() or {}
+    name = str(payload.get("department_name") or "").strip()
+    if not name:
+        return jsonify({"error": "department_name is required"}), 400
+
+    exists = db_utils.fetch_one(
+        "SELECT id FROM departments WHERE LOWER(department_name) = LOWER(%s) LIMIT 1",
+        (name,),
+    )
+    if exists:
+        return jsonify({"error": "Department already exists"}), 400
+
+    row = db_utils.execute_returning(
+        """
+        INSERT INTO departments (department_name, is_active)
+        VALUES (%s, TRUE)
+        RETURNING id, department_name, is_active
+        """,
+        (name,),
+    )
+    return jsonify({"message": "Department added", "department": row}), 201
+
+
+@web_bp.put("/admin/departments/<int:department_id>")
+@roles_required("admin", "super_admin")
+def update_department(department_id):
+    _ensure_departments_schema()
+    payload = request.get_json() or {}
+    name = str(payload.get("department_name") or "").strip()
+    if not name:
+        return jsonify({"error": "department_name is required"}), 400
+
+    row = db_utils.fetch_one("SELECT id FROM departments WHERE id = %s LIMIT 1", (department_id,))
+    if not row:
+        return jsonify({"error": "Department not found"}), 404
+
+    conflict = db_utils.fetch_one(
+        "SELECT id FROM departments WHERE LOWER(department_name) = LOWER(%s) AND id <> %s LIMIT 1",
+        (name, department_id),
+    )
+    if conflict:
+        return jsonify({"error": "Department name already used"}), 400
+
+    db_utils.execute(
+        "UPDATE departments SET department_name = %s WHERE id = %s",
+        (name, department_id),
+    )
+    updated = db_utils.fetch_one(
+        "SELECT id, department_name, is_active FROM departments WHERE id = %s",
+        (department_id,),
+    )
+    return jsonify({"message": "Department updated", "department": updated}), 200
+
+
+@web_bp.get("/admin/programmes")
+@roles_required("admin", "super_admin")
+def list_programmes_by_department():
+    _ensure_departments_schema()
+    rows = db_utils.fetch_all(
+        """
+        SELECT
+            p.id,
+            p.program_name AS programme_name,
+            p.duration_years,
+            p.is_active,
+            d.id AS department_id,
+            d.department_name
+        FROM academic_programs p
+        LEFT JOIN program_department_map m
+            ON LOWER(m.program_name) = LOWER(p.program_name)
+        LEFT JOIN departments d
+            ON d.id = m.department_id
+        ORDER BY d.department_name ASC, p.program_name ASC
+        """
+    )
+    return jsonify({"programmes": rows}), 200
+
+
+@web_bp.post("/admin/programmes")
+@roles_required("admin", "super_admin")
+def create_programme_with_department():
+    _ensure_departments_schema()
+    payload = request.get_json() or {}
+    programme_name = str(payload.get("programme_name") or "").strip()
+    department_id = payload.get("department_id")
+    duration_years = int(payload.get("duration_years") or 4)
+    if not programme_name:
+        return jsonify({"error": "programme_name is required"}), 400
+    if not department_id:
+        return jsonify({"error": "department_id is required"}), 400
+    try:
+        department_id = int(department_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "department_id must be numeric"}), 400
+
+    if duration_years < 1 or duration_years > 10:
+        return jsonify({"error": "duration_years must be between 1 and 10"}), 400
+
+    dep = db_utils.fetch_one("SELECT id FROM departments WHERE id = %s", (department_id,))
+    if not dep:
+        return jsonify({"error": "Department not found"}), 404
+
+    existing = db_utils.fetch_one(
+        "SELECT id FROM academic_programs WHERE LOWER(program_name) = LOWER(%s) LIMIT 1",
+        (programme_name,),
+    )
+    if existing:
+        return jsonify({"error": "Programme already exists"}), 400
+
+    row = db_utils.execute_returning(
+        """
+        INSERT INTO academic_programs (program_name, duration_years, semesters_per_year, is_active)
+        VALUES (%s, %s, 2, TRUE)
+        RETURNING id, program_name, duration_years, is_active
+        """,
+        (programme_name, duration_years),
+    )
+    db_utils.execute(
+        """
+        INSERT INTO program_department_map (program_name, department_id)
+        VALUES (%s, %s)
+        """,
+        (programme_name, department_id),
+    )
+    return jsonify({"message": "Programme added", "programme": row}), 201
+
+
+@web_bp.put("/admin/programmes/<int:programme_id>")
+@roles_required("admin", "super_admin")
+def update_programme_department(programme_id):
+    _ensure_departments_schema()
+    payload = request.get_json() or {}
+    programme_name = str(payload.get("programme_name") or "").strip()
+    department_id = payload.get("department_id")
+    duration_years = int(payload.get("duration_years") or 4)
+
+    if not programme_name:
+        return jsonify({"error": "programme_name is required"}), 400
+    if not department_id:
+        return jsonify({"error": "department_id is required"}), 400
+    try:
+        department_id = int(department_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "department_id must be numeric"}), 400
+    if duration_years < 1 or duration_years > 10:
+        return jsonify({"error": "duration_years must be between 1 and 10"}), 400
+
+    prog = db_utils.fetch_one(
+        "SELECT id, program_name FROM academic_programs WHERE id = %s LIMIT 1",
+        (programme_id,),
+    )
+    if not prog:
+        return jsonify({"error": "Programme not found"}), 404
+
+    dep = db_utils.fetch_one("SELECT id FROM departments WHERE id = %s LIMIT 1", (department_id,))
+    if not dep:
+        return jsonify({"error": "Department not found"}), 404
+
+    name_conflict = db_utils.fetch_one(
+        """
+        SELECT id
+        FROM academic_programs
+        WHERE LOWER(program_name) = LOWER(%s) AND id <> %s
+        LIMIT 1
+        """,
+        (programme_name, programme_id),
+    )
+    if name_conflict:
+        return jsonify({"error": "Programme name already used"}), 400
+
+    old_program_name = str(prog.get("program_name") or "").strip()
+    db_utils.execute(
+        """
+        UPDATE academic_programs
+        SET program_name = %s, duration_years = %s
+        WHERE id = %s
+        """,
+        (programme_name, duration_years, programme_id),
+    )
+    db_utils.execute(
+        """
+        DELETE FROM program_department_map
+        WHERE LOWER(program_name) = LOWER(%s)
+        """,
+        (old_program_name,),
+    )
+    db_utils.execute(
+        """
+        INSERT INTO program_department_map (program_name, department_id)
+        VALUES (%s, %s)
+        """,
+        (programme_name, department_id),
+    )
+
+    updated = db_utils.fetch_one(
+        """
+        SELECT id, program_name, duration_years, is_active
+        FROM academic_programs
+        WHERE id = %s
+        """,
+        (programme_id,),
+    )
+    return jsonify({"message": "Programme updated", "programme": updated}), 200
+
+
 @web_bp.get("/admin/courses")
 @roles_required("admin", "super_admin")
 def list_program_level_courses():
@@ -2027,14 +2380,25 @@ def list_program_level_courses():
 @web_bp.get("/admin/programs")
 @roles_required("admin", "super_admin")
 def list_academic_programs():
+    _ensure_departments_schema()
     active_only = str(request.args.get("active_only") or "").strip().lower() in {"1", "true", "yes"}
-    where_sql = "WHERE is_active = TRUE" if active_only else ""
+    where_sql = "WHERE p.is_active = TRUE" if active_only else ""
     rows = db_utils.fetch_all(
         f"""
-        SELECT id, program_name, duration_years, semesters_per_year, is_active, created_at
-        FROM academic_programs
+        SELECT
+            p.id,
+            p.program_name,
+            p.duration_years,
+            p.semesters_per_year,
+            p.is_active,
+            p.created_at,
+            d.id AS department_id,
+            d.department_name
+        FROM academic_programs p
+        LEFT JOIN program_department_map m ON LOWER(m.program_name) = LOWER(p.program_name)
+        LEFT JOIN departments d ON d.id = m.department_id
         {where_sql}
-        ORDER BY is_active DESC, program_name ASC
+        ORDER BY p.is_active DESC, p.program_name ASC
         """
     )
     return jsonify({"programs": rows, "total": len(rows)}), 200
@@ -2043,12 +2407,20 @@ def list_academic_programs():
 @web_bp.post("/admin/programs")
 @roles_required("admin", "super_admin")
 def create_academic_program():
+    _ensure_departments_schema()
     payload = request.get_json() or {}
     program_name = str(payload.get("program_name") or "").strip()
+    department_id = payload.get("department_id")
     duration_years = payload.get("duration_years")
     semesters_per_year = payload.get("semesters_per_year")
     if not program_name:
         return jsonify({"error": "program_name is required"}), 400
+    if department_id is None or str(department_id).strip() == "":
+        return jsonify({"error": "department_id is required"}), 400
+    try:
+        department_id = int(department_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "department_id must be numeric"}), 400
     try:
         duration_years = int(duration_years)
     except (TypeError, ValueError):
@@ -2062,6 +2434,10 @@ def create_academic_program():
     if semesters_per_year <= 0 or semesters_per_year > 8:
         return jsonify({"error": "semesters_per_year must be between 1 and 8"}), 400
 
+    dep = db_utils.fetch_one("SELECT id FROM departments WHERE id = %s LIMIT 1", (department_id,))
+    if not dep:
+        return jsonify({"error": "Selected department was not found"}), 404
+
     row = db_utils.execute_returning(
         """
         INSERT INTO academic_programs (program_name, duration_years, semesters_per_year, is_active)
@@ -2074,6 +2450,14 @@ def create_academic_program():
         RETURNING id, program_name, duration_years, semesters_per_year, is_active, created_at
         """,
         (program_name, duration_years, semesters_per_year),
+    )
+    db_utils.execute(
+        "DELETE FROM program_department_map WHERE LOWER(program_name) = LOWER(%s)",
+        (row.get("program_name"),),
+    )
+    db_utils.execute(
+        "INSERT INTO program_department_map (program_name, department_id) VALUES (%s, %s)",
+        (row.get("program_name"), department_id),
     )
     return jsonify({"message": "Program saved successfully", "program": row}), 200
 

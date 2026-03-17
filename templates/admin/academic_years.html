@@ -101,6 +101,23 @@
     el.className = ok ? "text-xs mt-3 text-emerald-700" : "text-xs mt-3 text-rose-700";
   }
 
+  function monthName(value) {
+    const names = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+    const idx = Number(value || 0) - 1;
+    if (idx < 0 || idx >= names.length) return "-";
+    return names[idx];
+  }
+
+  function formatMonthDay(month, day) {
+    const m = monthName(month);
+    const d = Number(day || 0);
+    if (m === "-" || d < 1) return "-";
+    return `${m} ${d}`;
+  }
+
   function renderAcademicYearRow(row) {
     const wrap = document.createElement("div");
     wrap.className = "px-3 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2";
@@ -113,7 +130,7 @@
     wrap.innerHTML = `
       <div class="min-w-0">
         <div class="text-sm">${row.year_label || ""}</div>
-        <div class="mt-1 text-[11px] text-slate-500">Start: ${row.start_month || "-"}-${row.start_day || "-"} | End: ${row.end_month || "-"}-${row.end_day || "-"}</div>
+        <div class="mt-1 text-[11px] text-slate-500">Start: ${formatMonthDay(row.start_month, row.start_day)} | End: ${formatMonthDay(row.end_month, row.end_day)}</div>
         <div class="mt-1 flex flex-wrap gap-1">${currentBadge} ${enrollmentBadge}</div>
       </div>
       <div class="flex flex-wrap gap-2 w-full sm:w-auto">

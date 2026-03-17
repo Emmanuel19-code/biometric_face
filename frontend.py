@@ -20,6 +20,7 @@ def inject_template_helpers():
         "web.attendance_logs_page": "/attendance/logs",
         "web.session_setup_page": "/admin/session-setup",
         "web.add_invigilator_page": "/admin/invigilators/new",
+        "web.departments_page": "/admin/departments/manage",
         "web.academic_years_page": "/admin/academic-years/manage",
         "web.semester_control_page": "/admin/semester-control",
         "web.logout_page": "/logout",
@@ -56,6 +57,58 @@ REGISTRATIONS = {
         {"index": "10298741", "name": "Tetteh Darpoh Lemuel", "program": "BSc ITM", "level": "200"},
     ]
 }
+
+DEPARTMENTS = [
+    {"id": "D1", "department_name": "Information Technology", "is_active": True},
+    {"id": "D2", "department_name": "Business Administration", "is_active": True},
+]
+
+PROGRAMMES = [
+    {"id": "P1", "programme_name": "BSc ITM", "department_id": "D1", "duration_years": 4, "is_active": True},
+    {"id": "P2", "programme_name": "BBA Accounting", "department_id": "D2", "duration_years": 4, "is_active": True},
+]
+
+ACADEMIC_YEARS = [
+    {"id": "AY1", "year_label": "2025/2026", "is_current": False, "enrollment_open": False},
+    {"id": "AY2", "year_label": "2026/2027", "is_current": True, "enrollment_open": True},
+]
+
+
+def _next_id(prefix, rows):
+    max_num = 0
+    for row in rows:
+        rid = str(row.get("id") or "")
+        if rid.startswith(prefix):
+            try:
+                max_num = max(max_num, int(rid[len(prefix):]))
+            except ValueError:
+                pass
+    return f"{prefix}{max_num + 1}"
+
+
+def _serialize_departments_with_programmes():
+    grouped = []
+    for d in DEPARTMENTS:
+        progs = [
+            {
+                "id": p["id"],
+                "programme_name": p["programme_name"],
+                "duration_years": p.get("duration_years", 4),
+                "is_active": bool(p.get("is_active", True)),
+            }
+            for p in PROGRAMMES
+            if p.get("department_id") == d.get("id")
+        ]
+        grouped.append(
+            {
+                "id": d["id"],
+                "department_name": d["department_name"],
+                "is_active": bool(d.get("is_active", True)),
+                "programmes": progs,
+            }
+        )
+    grouped.sort(key=lambda x: x["department_name"].lower())
+    return grouped
 
 def admin_required(fn):
     @wraps(fn)
@@ -112,16 +165,19 @@ def register_student_submit():
     email = str(payload.get("email") or "").strip()
     course = str(payload.get("course") or "N/A").strip() or "N/A"
     level = str(payload.get("year_level") or "Unknown").strip() or "Unknown"
+    academic_year = str(payload.get("admission_academic_year") or "").strip()
     if not student_id:
-        return jsonify({"error": "student_id is required"}), 400
+        student_id = f"STU{datetime.utcnow().strftime('%y%m%d%H%M%S')}"
     if not full_name:
         return jsonify({"error": "full_name is required"}), 400
     if not email:
         return jsonify({"error": "email is required"}), 400
+    if not academic_year:
+        return jsonify({"error": "admission_academic_year is required"}), 400
     if not isinstance(payload.get("face_images"), list) or len(payload.get("face_images")) < 1:
         return jsonify({"error": "face_images is required"}), 400
 
-    student = {"index": student_id, "name": full_name, "program": course, "level": level}
+    student = {"index": student_id, "name": full_name, "program": course, "level": level, "academic_year": academic_year}
     if "S1" not in REGISTRATIONS:
         REGISTRATIONS["S1"] = []
     REGISTRATIONS["S1"] = [s for s in REGISTRATIONS["S1"] if s.get("index") != student_id]
@@ -139,6 +195,7 @@ def register_student_submit():
                 "department": str(payload.get("department") or "General").strip(),
                 "course": course,
                 "year_level": level,
+                "admission_academic_year": academic_year,
                 "is_active": True,
                 "biometric_enrolled": True,
                 "biometric_blob_size": len(payload.get("face_images") or []) * 1024,
@@ -176,6 +233,178 @@ def all_sessions():
             }
         )
     return render_template("exams/sessions_list.html", title="All Sessions", sessions=sessions)
+
+
+@app.get("/admin/departments/manage")
+@admin_required
+def departments_page():
+    return render_template("admin/departments.html", title="Departments & Programmes")
+
+
+@app.get("/admin/departments")
+@admin_required
+def list_departments():
+    return jsonify({"departments": _serialize_departments_with_programmes()}), 200
+
+
+@app.post("/admin/departments")
+@admin_required
+def add_department():
+    payload = request.get_json() or {}
+    name = str(payload.get("department_name") or "").strip()
+    if not name:
+        return jsonify({"error": "department_name is required"}), 400
+
+    if any(str(d.get("department_name") or "").strip().lower() == name.lower() for d in DEPARTMENTS):
+        return jsonify({"error": "Department already exists"}), 400
+
+    row = {"id": _next_id("D", DEPARTMENTS), "department_name": name, "is_active": True}
+    DEPARTMENTS.append(row)
+    return jsonify({"message": "Department added", "department": row}), 201
+
+
+@app.put("/admin/departments/<department_id>")
+@admin_required
+def update_department(department_id):
+    payload = request.get_json() or {}
+    name = str(payload.get("department_name") or "").strip()
+    if not name:
+        return jsonify({"error": "department_name is required"}), 400
+
+    target = None
+    for d in DEPARTMENTS:
+        if str(d.get("id")) == str(department_id):
+            target = d
+            break
+    if not target:
+        return jsonify({"error": "Department not found"}), 404
+
+    for d in DEPARTMENTS:
+        if d is target:
+            continue
+        if str(d.get("department_name") or "").strip().lower() == name.lower():
+            return jsonify({"error": "Department name already used"}), 400
+
+    target["department_name"] = name
+    return jsonify({"message": "Department updated", "department": target}), 200
+
+
+@app.get("/admin/programmes")
+@admin_required
+def list_programmes():
+    rows = []
+    dept_lookup = {d["id"]: d["department_name"] for d in DEPARTMENTS}
+    for p in PROGRAMMES:
+        rows.append(
+            {
+                "id": p["id"],
+                "programme_name": p["programme_name"],
+                "department_id": p["department_id"],
+                "department_name": dept_lookup.get(p["department_id"], "Unknown"),
+                "duration_years": p.get("duration_years", 4),
+                "is_active": bool(p.get("is_active", True)),
+            }
+        )
+    rows.sort(key=lambda x: (x["department_name"].lower(), x["programme_name"].lower()))
+    return jsonify({"programmes": rows}), 200
+
+
+@app.get("/admin/programs")
+def list_programs_alias():
+    dept_lookup = {d["id"]: d["department_name"] for d in DEPARTMENTS}
+    rows = [
+        {
+            "id": p["id"],
+            "program_name": p["programme_name"],
+            "department_name": dept_lookup.get(p["department_id"], "Unknown"),
+            "duration_years": p.get("duration_years", 4),
+            "is_active": bool(p.get("is_active", True)),
+        }
+        for p in PROGRAMMES
+    ]
+    rows.sort(key=lambda x: x["program_name"].lower())
+    return jsonify({"programs": rows}), 200
+
+
+@app.get("/admin/academic-years")
+def list_academic_years():
+    return jsonify({"academic_years": ACADEMIC_YEARS}), 200
+
+
+@app.post("/admin/programmes")
+@admin_required
+def add_programme():
+    payload = request.get_json() or {}
+    programme_name = str(payload.get("programme_name") or "").strip()
+    department_id = str(payload.get("department_id") or "").strip()
+    try:
+        duration_years = int(payload.get("duration_years") or 4)
+    except (TypeError, ValueError):
+        return jsonify({"error": "duration_years must be a number"}), 400
+
+    if not programme_name:
+        return jsonify({"error": "programme_name is required"}), 400
+    if not department_id:
+        return jsonify({"error": "department_id is required"}), 400
+    if duration_years < 1 or duration_years > 10:
+        return jsonify({"error": "duration_years must be between 1 and 10"}), 400
+
+    if not any(str(d.get("id")) == department_id for d in DEPARTMENTS):
+        return jsonify({"error": "Department not found"}), 404
+
+    if any(str(p.get("programme_name") or "").strip().lower() == programme_name.lower() for p in PROGRAMMES):
+        return jsonify({"error": "Programme already exists"}), 400
+
+    row = {
+        "id": _next_id("P", PROGRAMMES),
+        "programme_name": programme_name,
+        "department_id": department_id,
+        "duration_years": duration_years,
+        "is_active": True,
+    }
+    PROGRAMMES.append(row)
+    return jsonify({"message": "Programme added", "programme": row}), 201
+
+
+@app.put("/admin/programmes/<programme_id>")
+@admin_required
+def update_programme(programme_id):
+    payload = request.get_json() or {}
+    programme_name = str(payload.get("programme_name") or "").strip()
+    department_id = str(payload.get("department_id") or "").strip()
+    try:
+        duration_years = int(payload.get("duration_years") or 4)
+    except (TypeError, ValueError):
+        return jsonify({"error": "duration_years must be a number"}), 400
+
+    if not programme_name:
+        return jsonify({"error": "programme_name is required"}), 400
+    if not department_id:
+        return jsonify({"error": "department_id is required"}), 400
+    if duration_years < 1 or duration_years > 10:
+        return jsonify({"error": "duration_years must be between 1 and 10"}), 400
+
+    if not any(str(d.get("id")) == department_id for d in DEPARTMENTS):
+        return jsonify({"error": "Department not found"}), 404
+
+    target = None
+    for p in PROGRAMMES:
+        if str(p.get("id")) == str(programme_id):
+            target = p
+            break
+    if not target:
+        return jsonify({"error": "Programme not found"}), 404
+
+    for p in PROGRAMMES:
+        if p is target:
+            continue
+        if str(p.get("programme_name") or "").strip().lower() == programme_name.lower():
+            return jsonify({"error": "Programme name already used"}), 400
+
+    target["programme_name"] = programme_name
+    target["department_id"] = department_id
+    target["duration_years"] = duration_years
+    return jsonify({"message": "Programme updated", "programme": target}), 200
 
 def _parse_date(s):
     try:

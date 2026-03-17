@@ -1,0 +1,258 @@
+{% extends "layout.html" %}
+{% set title = "Departments & Programmes" %}
+{% block content %}
+
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+    <div class="text-sm font-semibold">Add / Edit Department</div>
+    <p class="text-xs text-slate-500 mt-1">Create departments and rename existing ones.</p>
+
+    <form id="departmentForm" class="mt-4 space-y-3">
+      <input type="hidden" id="departmentIdInput">
+      <div>
+        <label class="text-xs text-slate-500">Department Name</label>
+        <input id="departmentNameInput" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+               placeholder="e.g. Information Technology" required>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <button class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-semibold hover:bg-brand-700" type="submit">
+          Save Department
+        </button>
+        <button id="departmentResetBtn" class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50" type="button">
+          Clear
+        </button>
+      </div>
+    </form>
+    <p id="departmentMsg" class="mt-3 text-xs text-slate-500"></p>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+    <div class="text-sm font-semibold">Add / Edit Programme</div>
+    <p class="text-xs text-slate-500 mt-1">Assign each programme to a department and set duration.</p>
+
+    <form id="programmeForm" class="mt-4 space-y-3">
+      <input type="hidden" id="programmeIdInput">
+      <div>
+        <label class="text-xs text-slate-500">Programme Name</label>
+        <input id="programmeNameInput" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+               placeholder="e.g. BSc ITM" required>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Department</label>
+        <select id="programmeDepartmentInput" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select department</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Duration (Years)</label>
+        <input id="programmeDurationInput" type="number" min="1" max="10" value="4"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <button class="w-full sm:w-auto rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700" type="submit">
+          Save Programme
+        </button>
+        <button id="programmeResetBtn" class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50" type="button">
+          Clear
+        </button>
+      </div>
+    </form>
+    <p id="programmeMsg" class="mt-3 text-xs text-slate-500"></p>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0 xl:col-span-1">
+    <div class="text-sm font-semibold">Departments & Programmes</div>
+    <p class="text-xs text-slate-500 mt-1">Programmes are grouped under each department.</p>
+
+    <div id="departmentProgrammeList" class="mt-4 space-y-3"></div>
+  </div>
+</div>
+
+<script>
+  const departmentForm = document.getElementById("departmentForm");
+  const departmentIdInput = document.getElementById("departmentIdInput");
+  const departmentNameInput = document.getElementById("departmentNameInput");
+  const departmentResetBtn = document.getElementById("departmentResetBtn");
+  const departmentMsg = document.getElementById("departmentMsg");
+
+  const programmeForm = document.getElementById("programmeForm");
+  const programmeIdInput = document.getElementById("programmeIdInput");
+  const programmeNameInput = document.getElementById("programmeNameInput");
+  const programmeDepartmentInput = document.getElementById("programmeDepartmentInput");
+  const programmeDurationInput = document.getElementById("programmeDurationInput");
+  const programmeResetBtn = document.getElementById("programmeResetBtn");
+  const programmeMsg = document.getElementById("programmeMsg");
+
+  const departmentProgrammeList = document.getElementById("departmentProgrammeList");
+
+  let departmentsCache = [];
+
+  function setMsg(el, text, ok = false) {
+    el.textContent = text || "";
+    el.className = `mt-3 text-xs ${ok ? "text-emerald-700" : "text-rose-700"}`;
+  }
+
+  function resetDepartmentForm() {
+    departmentIdInput.value = "";
+    departmentNameInput.value = "";
+  }
+
+  function resetProgrammeForm() {
+    programmeIdInput.value = "";
+    programmeNameInput.value = "";
+    programmeDepartmentInput.value = "";
+    programmeDurationInput.value = "4";
+  }
+
+  function populateDepartmentSelect() {
+    programmeDepartmentInput.innerHTML = '<option value="">Select department</option>';
+    departmentsCache.forEach((d) => {
+      if (d.is_virtual) return;
+      const id = String(d.id || "").trim();
+      const name = String(d.department_name || "").trim();
+      if (!id || !name) return;
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = name;
+      programmeDepartmentInput.appendChild(opt);
+    });
+  }
+
+  function renderDepartments() {
+    departmentProgrammeList.innerHTML = "";
+    if (!departmentsCache.length) {
+      departmentProgrammeList.innerHTML = '<div class="rounded-xl border border-slate-200 px-3 py-3 text-sm text-slate-500">No departments yet.</div>';
+      return;
+    }
+
+    departmentsCache.forEach((d) => {
+      const wrap = document.createElement("div");
+      wrap.className = "rounded-xl border border-slate-200 overflow-hidden";
+      const isVirtual = d.is_virtual === true;
+
+      const programmes = Array.isArray(d.programmes) ? d.programmes : [];
+      const programmesHtml = programmes.length
+        ? programmes.map((p) => `
+            <div class="py-2 px-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <div class="text-sm">${p.programme_name}</div>
+                <div class="text-xs text-slate-500">${Number(p.duration_years || 0)} year(s)</div>
+              </div>
+              <button class="edit-programme rounded-lg border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
+                      data-id="${p.id}"
+                      data-name="${p.programme_name}"
+                      data-department-id="${d.id}"
+                      data-duration="${p.duration_years}">
+                Edit Programme
+              </button>
+            </div>
+          `).join("")
+        : '<div class="py-3 px-3 text-xs text-slate-500 border-t border-slate-100">No programmes under this department.</div>';
+
+      wrap.innerHTML = `
+        <div class="px-3 py-3 bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div class="text-sm font-semibold">${d.department_name}</div>
+          ${
+            isVirtual
+              ? '<span class="text-[11px] text-slate-500">Assign these programmes to a real department.</span>'
+              : `<button class="edit-department rounded-lg border border-slate-200 px-2 py-1 text-xs hover:bg-white"
+                  data-id="${d.id}"
+                  data-name="${d.department_name}">
+                Edit Department
+              </button>`
+          }
+        </div>
+        ${programmesHtml}
+      `;
+      departmentProgrammeList.appendChild(wrap);
+    });
+  }
+
+  async function loadDepartments() {
+    const res = await fetch("/admin/departments");
+    const data = await res.json().catch(() => ({}));
+    departmentsCache = Array.isArray(data.departments) ? data.departments : [];
+    populateDepartmentSelect();
+    renderDepartments();
+  }
+
+  departmentForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    setMsg(departmentMsg, "");
+    const payload = { department_name: departmentNameInput.value.trim() };
+    const id = departmentIdInput.value.trim();
+    const url = id ? `/admin/departments/${encodeURIComponent(id)}` : "/admin/departments";
+    const method = id ? "PUT" : "POST";
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to save department");
+      setMsg(departmentMsg, body.message || "Saved", true);
+      resetDepartmentForm();
+      await loadDepartments();
+    } catch (err) {
+      setMsg(departmentMsg, err.message || "Failed to save department");
+    }
+  });
+
+  programmeForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    setMsg(programmeMsg, "");
+    const payload = {
+      programme_name: programmeNameInput.value.trim(),
+      department_id: programmeDepartmentInput.value.trim(),
+      duration_years: Number(programmeDurationInput.value || 4)
+    };
+    const id = programmeIdInput.value.trim();
+    const url = id ? `/admin/programmes/${encodeURIComponent(id)}` : "/admin/programmes";
+    const method = id ? "PUT" : "POST";
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to save programme");
+      setMsg(programmeMsg, body.message || "Saved", true);
+      resetProgrammeForm();
+      await loadDepartments();
+    } catch (err) {
+      setMsg(programmeMsg, err.message || "Failed to save programme");
+    }
+  });
+
+  departmentProgrammeList.addEventListener("click", (e) => {
+    const dBtn = e.target.closest(".edit-department");
+    if (dBtn) {
+      departmentIdInput.value = dBtn.dataset.id || "";
+      departmentNameInput.value = dBtn.dataset.name || "";
+      departmentNameInput.focus();
+      return;
+    }
+
+    const pBtn = e.target.closest(".edit-programme");
+    if (pBtn) {
+      programmeIdInput.value = pBtn.dataset.id || "";
+      programmeNameInput.value = pBtn.dataset.name || "";
+      programmeDepartmentInput.value = pBtn.dataset.departmentId || "";
+      programmeDurationInput.value = pBtn.dataset.duration || "4";
+      programmeNameInput.focus();
+    }
+  });
+
+  departmentResetBtn.addEventListener("click", resetDepartmentForm);
+  programmeResetBtn.addEventListener("click", resetProgrammeForm);
+
+  (async () => {
+    await loadDepartments();
+  })();
+</script>
+
+{% endblock %}

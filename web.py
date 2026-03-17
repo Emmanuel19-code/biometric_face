@@ -678,6 +678,11 @@ def student_portal_page():
         """,
         (student_db_id,),
     )
+    registered_course_codes = {
+        str(row.get("course_code") or "").strip().upper()
+        for row in registered_courses
+        if row.get("course_code")
+    }
     return render_template(
         "student/portal.html",
         title="Student Exam Course Registration",
@@ -686,6 +691,7 @@ def student_portal_page():
         available_courses=available_courses,
         grouped_available_courses=grouped_available_courses,
         registered_courses=registered_courses,
+        registered_course_codes=registered_course_codes,
         msg=request.args.get("msg"),
         err=request.args.get("err"),
     )

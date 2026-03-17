@@ -419,11 +419,42 @@
     sessionReadyBadge.textContent = text;
   }
 
-  function normalizeApiError(payload, fallback) {
+  function normalizeApiError(payload, fallback, response = null) {
     if (payload && typeof payload.error === "string" && payload.error.trim()) {
-      return payload.error.trim();
+      const apiMessage = payload.error.trim();
+      if (response && typeof response.status === "number") {
+        return `HTTP ${response.status}: ${apiMessage}`;
+      }
+      return apiMessage;
+    }
+    if (payload && typeof payload.message === "string" && payload.message.trim()) {
+      const apiMessage = payload.message.trim();
+      if (response && typeof response.status === "number") {
+        return `HTTP ${response.status}: ${apiMessage}`;
+      }
+      return apiMessage;
+    }
+    if (payload && typeof payload.rawText === "string" && payload.rawText.trim()) {
+      const text = payload.rawText.trim().slice(0, 220);
+      if (response && typeof response.status === "number") {
+        return `HTTP ${response.status}: ${text}`;
+      }
+      return text;
+    }
+    if (response && typeof response.status === "number") {
+      return `HTTP ${response.status}: ${fallback}`;
     }
     return fallback;
+  }
+
+  async function readApiPayload(response) {
+    const rawText = await response.text().catch(() => "");
+    if (!rawText) return {};
+    try {
+      return JSON.parse(rawText);
+    } catch (_) {
+      return { rawText };
+    }
   }
 
   async function ensureStationKey(sessionId) {
@@ -441,9 +472,9 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId })
     });
-    const payload = await response.json().catch(() => ({}));
+    const payload = await readApiPayload(response);
     if (!response.ok) {
-      throw new Error(normalizeApiError(payload, "Could not prepare station key"));
+      throw new Error(normalizeApiError(payload, "Could not prepare station key", response));
     }
 
     stationKeyCache = payload.api_key || "";
@@ -457,9 +488,9 @@
       headers: { "X-Station-Key": stationKey }
     });
 
-    const payload = await response.json().catch(() => ({}));
+    const payload = await readApiPayload(response);
     if (!response.ok) {
-      throw new Error(normalizeApiError(payload, "Could not create verification challenge"));
+      throw new Error(normalizeApiError(payload, "Could not create verification challenge", response));
     }
     return payload;
   }
@@ -513,9 +544,9 @@
         body: JSON.stringify(payload)
       });
 
-      const result = await response.json().catch(() => ({}));
+      const result = await readApiPayload(response);
       if (!response.ok) {
-        const message = normalizeApiError(result, "Verification failed");
+        const message = normalizeApiError(result, "Verification failed", response);
         const msgLower = message.toLowerCase();
         const statusType = msgLower.includes("not registered") ? "warn" : "bad";
         const eligibility = msgLower.includes("not registered") ? "Not Eligible" : "Unknown";

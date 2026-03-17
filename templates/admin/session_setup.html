@@ -35,6 +35,21 @@
         <input id="expectedStudents" type="number" min="1" class="rounded-xl border border-slate-200 px-4 py-2" placeholder="Expected students" required />
         <input id="venue" class="rounded-xl border border-slate-200 px-4 py-2" placeholder="Venue auto-populated from hall" readonly />
       </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-slate-500">Session Period</label>
+          <select id="sessionPeriod" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2" required>
+            <option value="">Select period</option>
+            <option value="morning">Morning</option>
+            <option value="evening">Evening</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Paper Group (auto)</label>
+          <input id="paperGroupPreview" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2 bg-slate-50 text-slate-700"
+                 placeholder="Auto from course + date + period" readonly>
+        </div>
+      </div>
       <label class="flex items-center gap-2 text-sm text-slate-700">
         <input id="allowFileUpload" type="checkbox" class="rounded border-slate-300">
         <span>Allow file upload during exam verification (otherwise capture-only)</span>
@@ -80,7 +95,7 @@
       <select id="sessionSelect" class="w-full rounded-xl border border-slate-200 px-4 py-2">
         <option value="">Select session</option>
         {% for s in sessions %}
-        <option value="{{ s.id }}">{{ s.session_name }} | {{ s.venue or 'N/A' }} | {{ s.start_time.strftime('%Y-%m-%d %H:%M') }}</option>
+        <option value="{{ s.id }}">{{ s.session_name }} | {{ s.venue or 'N/A' }} | {{ s.start_time.strftime('%Y-%m-%d %H:%M') }}{% if s.paper_group_code %} | Group: {{ s.paper_group_code }}{% endif %}</option>
         {% endfor %}
       </select>
     </div>
@@ -123,6 +138,10 @@
   const saveInvigilatorsBtn = document.getElementById("saveInvigilators");
   const hallSelect = document.getElementById("hallId");
   const venueInput = document.getElementById("venue");
+  const courseCodeInput = document.getElementById("courseCode");
+  const startTimeInput = document.getElementById("startTime");
+  const sessionPeriodInput = document.getElementById("sessionPeriod");
+  const paperGroupPreview = document.getElementById("paperGroupPreview");
 
   function parsePapers(raw) {
     return raw.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
@@ -154,6 +173,28 @@
     venueInput.value = selected && selected.value ? (selected.dataset.name || "") : "";
   });
 
+  function updatePaperGroupPreview() {
+    const courseCode = (courseCodeInput?.value || "").trim().toUpperCase();
+    const localStart = (startTimeInput?.value || "").trim();
+    const period = (sessionPeriodInput?.value || "").trim().toUpperCase();
+    if (!courseCode || !localStart || !period) {
+      if (paperGroupPreview) paperGroupPreview.value = "";
+      return;
+    }
+    const d = new Date(localStart);
+    if (Number.isNaN(d.getTime())) {
+      if (paperGroupPreview) paperGroupPreview.value = "";
+      return;
+    }
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    if (paperGroupPreview) paperGroupPreview.value = `${courseCode}-${y}${m}${day}-${period}`;
+  }
+  courseCodeInput?.addEventListener("change", updatePaperGroupPreview);
+  startTimeInput?.addEventListener("change", updatePaperGroupPreview);
+  sessionPeriodInput?.addEventListener("change", updatePaperGroupPreview);
+
   createForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const payload = {
@@ -161,6 +202,8 @@
       course_code: document.getElementById("courseCode").value.trim(),
       hall_id: Number(document.getElementById("hallId").value),
       expected_students: Number(document.getElementById("expectedStudents").value),
+      session_period: (document.getElementById("sessionPeriod").value || "").trim(),
+      paper_group_code: (paperGroupPreview?.value || "").trim(),
       allow_file_upload: document.getElementById("allowFileUpload").checked,
       venue: document.getElementById("venue").value.trim(),
       start_time: toIsoUtc(document.getElementById("startTime").value),

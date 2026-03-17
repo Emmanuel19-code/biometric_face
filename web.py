@@ -10,6 +10,7 @@ import json
 import secrets
 from PIL import Image
 from utils import db as db_utils
+from utils import pause_controls
 from utils.encryption import encrypt_data
 from services.student_service import StudentService
 from config import get_database_backend
@@ -63,6 +64,27 @@ def _parse_iso_utc_naive(value):
     if dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
+
+
+def _normalize_paper_group_code(value):
+    cleaned = str(value or "").strip().upper()
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"[^A-Z0-9_-]+", "-", cleaned)
+    cleaned = re.sub(r"-{2,}", "-", cleaned).strip("-_")
+    return cleaned[:80]
+
+
+def _default_paper_group_code(course_code, start_time, session_period=None):
+    base_code = _normalize_paper_group_code(course_code) or "PAPER"
+    slot = str(session_period or "").strip().upper()
+    slot = slot if slot in {"MORNING", "EVENING"} else ""
+    if isinstance(start_time, datetime):
+        date_part = start_time.strftime('%Y%m%d')
+        if slot:
+            return f"{base_code}-{date_part}-{slot}"
+        return f"{base_code}-{date_part}-{start_time.strftime('%H%M')}"
+    return f"{base_code}-{slot}" if slot else base_code
 
 
 def _extract_level_number(level_name):
@@ -1072,7 +1094,7 @@ def exam_session_page():
     now = datetime.utcnow()
     rows = db_utils.fetch_all(
         """
-        SELECT id, session_name, course_code, venue, start_time, end_time, is_active, allow_file_upload
+        SELECT id, session_name, course_code, venue, hall_id, start_time, end_time, is_active, allow_file_upload
         FROM examination_sessions
         ORDER BY start_time DESC
         """
@@ -1106,6 +1128,7 @@ def exam_session_page():
                 "course_code": row.get("course_code"),
                 "course": row.get("course_code") or row.get("session_name") or "Untitled",
                 "title": row.get("session_name") or row.get("course_code") or "Untitled",
+                "hall_id": row.get("hall_id"),
                 "time": (
                     f"{start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}"
                     if start_time and end_time
@@ -1125,7 +1148,23 @@ def exam_session_page():
         selected = sessions[0]
 
     registered = []
+    selected_pause_state = {
+        "verification_paused": False,
+        "time_paused": False,
+        "verification_reason": None,
+        "time_reason": None,
+    }
     if selected:
+        pause_state = pause_controls.get_pause_state(
+            int(selected["id"]),
+            int(selected["hall_id"]) if selected.get("hall_id") is not None else None,
+        )
+        selected_pause_state = {
+            "verification_paused": bool(pause_state.get("verification_paused")),
+            "time_paused": bool(pause_state.get("time_paused")),
+            "verification_reason": (pause_state.get("verification_pause") or {}).get("reason"),
+            "time_reason": (pause_state.get("time_pause") or {}).get("reason"),
+        }
         reg_rows = db_utils.fetch_all(
             """
             SELECT DISTINCT s.student_id, s.first_name, s.last_name
@@ -1157,6 +1196,8 @@ def exam_session_page():
         sessions=sessions,
         selected=selected,
         registered=registered,
+        selected_pause_state=selected_pause_state,
+        can_manage_pause=_has_role("admin", "super_admin"),
     )
 
 @web_bp.get("/attendance/logs")
@@ -1282,7 +1323,7 @@ def auto_station_key():
         return jsonify({"error": "session_id is required"}), 400
 
     exam_session = db_utils.fetch_one(
-        "SELECT id FROM examination_sessions WHERE id = %s",
+        "SELECT id, hall_id FROM examination_sessions WHERE id = %s",
         (session_id,),
     )
     if not exam_session:
@@ -1295,11 +1336,11 @@ def auto_station_key():
 
     station = db_utils.execute_returning(
         """
-        INSERT INTO exam_stations (name, api_key_hash, ip_whitelist, is_active)
-        VALUES (%s, %s, %s, TRUE)
-        RETURNING id, name, created_at
+        INSERT INTO exam_stations (name, api_key_hash, hall_id, ip_whitelist, is_active)
+        VALUES (%s, %s, %s, %s, TRUE)
+        RETURNING id, name, hall_id, created_at
         """,
-        (station_name, generate_password_hash(raw_key), ip_whitelist),
+        (station_name, generate_password_hash(raw_key), exam_session.get("hall_id"), ip_whitelist),
     )
     return jsonify(
         {
@@ -1582,7 +1623,7 @@ def end_session_web(session_id):
 def session_setup_page():
     sessions = db_utils.fetch_all(
         """
-        SELECT id, session_name, course_code, venue, start_time, end_time, is_active
+        SELECT id, session_name, course_code, paper_group_code, venue, start_time, end_time, is_active
         FROM examination_sessions
         ORDER BY start_time DESC
         """
@@ -1620,6 +1661,14 @@ def session_setup_page():
         ORDER BY name ASC
         """
     )
+    paper_groups = db_utils.fetch_all(
+        """
+        SELECT DISTINCT paper_group_code
+        FROM examination_sessions
+        WHERE paper_group_code IS NOT NULL AND paper_group_code <> ''
+        ORDER BY paper_group_code ASC
+        """
+    )
     return render_template(
         "admin/session_setup.html",
         title="Session Setup",
@@ -1628,6 +1677,7 @@ def session_setup_page():
         courses=courses,
         session_names=session_names,
         halls=halls,
+        paper_groups=paper_groups,
     )
 
 
@@ -1714,6 +1764,20 @@ def create_session_setup():
         return jsonify({"error": "Invalid date format"}), 400
     if end_time <= start_time:
         return jsonify({"error": "end_time must be after start_time"}), 400
+
+    session_period = str(payload.get("session_period") or "").strip().lower()
+    if session_period not in {"morning", "evening"}:
+        return jsonify({"error": "session_period must be either morning or evening"}), 400
+    if session_period == "morning" and int(start_time.hour) >= 12:
+        return jsonify({"error": "Morning session must start before 12:00"}), 400
+    if session_period == "evening" and int(start_time.hour) < 12:
+        return jsonify({"error": "Evening session must start from 12:00 and above"}), 400
+
+    provided_paper_group = _normalize_paper_group_code(payload.get("paper_group_code"))
+    paper_group_code = provided_paper_group or _default_paper_group_code(course_code, start_time, session_period)
+    if not paper_group_code:
+        return jsonify({"error": "Could not determine paper_group_code"}), 400
+
     overlap = db_utils.fetch_one(
         """
         SELECT id, session_name, start_time, end_time
@@ -1741,13 +1805,14 @@ def create_session_setup():
     created = db_utils.execute_returning(
         """
         INSERT INTO examination_sessions
-            (session_name, course_code, venue, hall_id, expected_students, start_time, end_time, created_by, is_active, allow_file_upload)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s)
+            (session_name, course_code, paper_group_code, venue, hall_id, expected_students, start_time, end_time, created_by, is_active, allow_file_upload)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s)
         RETURNING *
         """,
         (
             valid_session_name.get("course_title") or session_name,
             course_row.get("course_code"),
+            paper_group_code,
             hall.get("name"),
             hall["id"],
             expected_students,
@@ -3256,6 +3321,160 @@ def create_lecturer_account():
             "temporary_password": temporary_password,
         }
     ), 201
+
+
+@web_bp.get("/admin/pause-controls/state")
+@roles_required("invigilator", "lecturer", "admin", "super_admin")
+def get_pause_control_state():
+    session_id = request.args.get("session_id", type=int)
+    if not session_id:
+        return jsonify({"error": "session_id is required"}), 400
+    session_row = db_utils.fetch_one(
+        "SELECT id, hall_id, paper_group_code FROM examination_sessions WHERE id = %s",
+        (session_id,),
+    )
+    if not session_row:
+        return jsonify({"error": "Session not found"}), 404
+
+    hall_id = int(session_row["hall_id"]) if session_row.get("hall_id") is not None else None
+    state = pause_controls.get_pause_state(int(session_id), hall_id)
+    verification_pause = state.get("verification_pause") or {}
+    time_pause = state.get("time_pause") or {}
+    return jsonify(
+        {
+            "session_id": int(session_id),
+            "hall_id": hall_id,
+            "paper_group_code": session_row.get("paper_group_code"),
+            "verification_paused": bool(state.get("verification_paused")),
+            "time_paused": bool(state.get("time_paused")),
+            "verification_reason": verification_pause.get("reason"),
+            "time_reason": time_pause.get("reason"),
+            "verification_pause": verification_pause,
+            "time_pause": time_pause,
+        }
+    ), 200
+
+
+@web_bp.post("/admin/pause-controls/action")
+@roles_required("admin", "super_admin")
+def pause_controls_action():
+    payload = request.get_json() or {}
+    action = str(payload.get("action") or "").strip().lower()
+    pause_type = str(payload.get("pause_type") or "").strip().lower()
+    scope = str(payload.get("scope") or "hall").strip().lower()
+    reason = str(payload.get("reason") or "").strip()
+    session_id = payload.get("session_id")
+
+    try:
+        session_id = int(session_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "session_id is required"}), 400
+    if action not in {"pause", "resume"}:
+        return jsonify({"error": "action must be pause or resume"}), 400
+    if pause_type not in {"verification", "time", "both"}:
+        return jsonify({"error": "pause_type must be verification, time, or both"}), 400
+    if scope not in {"hall", "session", "paper"}:
+        return jsonify({"error": "scope must be hall, session, or paper"}), 400
+    if action == "pause" and not reason:
+        return jsonify({"error": "reason is required when pausing"}), 400
+
+    session_row = db_utils.fetch_one(
+        "SELECT id, hall_id, paper_group_code, is_active, start_time, end_time FROM examination_sessions WHERE id = %s",
+        (session_id,),
+    )
+    if not session_row:
+        return jsonify({"error": "Session not found"}), 404
+
+    hall_id = None
+    target_sessions = [int(session_id)]
+    rows = [session_row]
+    if scope == "hall":
+        if session_row.get("hall_id") is None:
+            return jsonify({"error": "Selected session has no hall assigned for hall-scoped pause"}), 400
+        hall_id = int(session_row["hall_id"])
+    elif scope == "paper":
+        paper_group_code = str(session_row.get("paper_group_code") or "").strip()
+        if not paper_group_code:
+            return jsonify({"error": "Selected session has no paper group code. Edit/create with paper grouping first."}), 400
+        rows = db_utils.fetch_all(
+            """
+            SELECT id, is_active, start_time, end_time
+            FROM examination_sessions
+            WHERE paper_group_code = %s
+            ORDER BY id ASC
+            """,
+            (paper_group_code,),
+        )
+        target_sessions = [int(r["id"]) for r in rows if r.get("id") is not None]
+        if not target_sessions:
+            return jsonify({"error": "No sessions found for this paper group."}), 404
+
+    now = datetime.utcnow()
+    non_live = []
+    for row in rows:
+        try:
+            sid = int(row.get("id"))
+        except (TypeError, ValueError):
+            continue
+        is_active = bool(row.get("is_active"))
+        start_time = row.get("start_time")
+        end_time = row.get("end_time")
+        is_live = bool(is_active and start_time and end_time and start_time <= now <= end_time)
+        if not is_live:
+            non_live.append(sid)
+    if non_live:
+        return jsonify(
+            {
+                "error": "Pause/resume is allowed only for live sessions.",
+                "non_live_session_ids": non_live,
+            }
+        ), 409
+
+    admin_id = int(session.get("admin_id"))
+    if action == "pause":
+        created_rows = []
+        existing_rows = []
+        for sid in target_sessions:
+            created, pause_row = pause_controls.start_pause(
+                session_id=int(sid),
+                hall_id=hall_id,
+                pause_type=pause_type,
+                reason=reason,
+                started_by=admin_id,
+            )
+            if created:
+                created_rows.append(pause_row)
+            else:
+                existing_rows.append(pause_row)
+        if not created_rows:
+            return jsonify({"error": "A matching active pause already exists for the selected scope.", "existing": existing_rows}), 409
+        return jsonify({"message": "Pause activated", "created_count": len(created_rows), "existing_count": len(existing_rows), "pauses": created_rows}), 201
+
+    resumed_rows = []
+    paused_seconds_total = 0
+    extended_seconds_total = 0
+    for sid in target_sessions:
+        resumed, pause_row, pause_seconds, extended_seconds = pause_controls.resume_pause(
+            session_id=int(sid),
+            hall_id=hall_id,
+            pause_type=pause_type,
+            resumed_by=admin_id,
+        )
+        if resumed:
+            resumed_rows.append(pause_row)
+            paused_seconds_total += int(pause_seconds or 0)
+            extended_seconds_total += int(extended_seconds or 0)
+    if not resumed_rows:
+        return jsonify({"error": "No matching active pause found for the selected scope."}), 404
+    return jsonify(
+        {
+            "message": "Pause resumed",
+            "resumed_count": len(resumed_rows),
+            "pauses": resumed_rows,
+            "paused_seconds": paused_seconds_total,
+            "extended_seconds": extended_seconds_total,
+        }
+    ), 200
 
 
 @web_bp.post("/admin/lecturers/<int:lecturer_id>/reset-password")

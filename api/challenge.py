@@ -5,6 +5,7 @@ import random
 
 from utils.station_auth import verify_station
 from utils import db as db_utils
+from utils import pause_controls
 
 challenge_bp = Blueprint("challenge", __name__, url_prefix="/api/attendance")
 
@@ -26,9 +27,21 @@ def get_challenge():
     if not session_id:
         return jsonify({"error": "session_id is required"}), 400
 
-    session = db_utils.fetch_one("SELECT id FROM examination_sessions WHERE id = %s", (session_id,))
+    session = db_utils.fetch_one("SELECT id, hall_id FROM examination_sessions WHERE id = %s", (session_id,))
     if not session:
         return jsonify({"error": "Session not found"}), 404
+    effective_hall_id = station.get("hall_id")
+    if effective_hall_id is None:
+        effective_hall_id = session.get("hall_id")
+    if effective_hall_id is not None:
+        effective_hall_id = int(effective_hall_id)
+
+    pause_state = pause_controls.get_pause_state(int(session_id), effective_hall_id)
+    verification_pause = pause_state.get("verification_pause")
+    if verification_pause:
+        reason = str(verification_pause.get("reason") or "").strip()
+        detail = f": {reason}" if reason else ""
+        return jsonify({"error": f"Verification is currently paused for this scope{detail}"}), 423
 
     challenge = random.choice(["blink", "turn_left", "turn_right"])
     nonce = secrets.token_urlsafe(24)

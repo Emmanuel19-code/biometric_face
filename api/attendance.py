@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required
 from services.attendance_service import AttendanceService
 from utils.station_auth import verify_station
 from utils import db as db_utils
+from utils import pause_controls
 from PIL import Image
 import base64
 import io
@@ -69,6 +70,24 @@ def verify_attendance():
             return jsonify({"error": "Nonce already used"}), 400
         if datetime.utcnow() > ch["expires_at"]:
             return jsonify({"error": "Nonce expired"}), 400
+
+        session_row = db_utils.fetch_one(
+            "SELECT id, hall_id FROM examination_sessions WHERE id = %s",
+            (int(data["session_id"]),),
+        )
+        if not session_row:
+            return jsonify({"error": "Session not found"}), 404
+        effective_hall_id = station.get("hall_id")
+        if effective_hall_id is None:
+            effective_hall_id = session_row.get("hall_id")
+        if effective_hall_id is not None:
+            effective_hall_id = int(effective_hall_id)
+        pause_state = pause_controls.get_pause_state(int(data["session_id"]), effective_hall_id)
+        verification_pause = pause_state.get("verification_pause")
+        if verification_pause:
+            reason = str(verification_pause.get("reason") or "").strip()
+            detail = f": {reason}" if reason else ""
+            return jsonify({"error": f"Verification is currently paused for this scope{detail}"}), 423
 
         # Mark nonce used (one-time)
         db_utils.execute(

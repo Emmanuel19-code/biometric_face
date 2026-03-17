@@ -172,6 +172,7 @@ def _init_sqlserver_schema():
             id INT IDENTITY(1,1) PRIMARY KEY,
             session_name NVARCHAR(200) NOT NULL,
             course_code NVARCHAR(50) NULL,
+            paper_group_code NVARCHAR(80) NULL,
             venue NVARCHAR(200) NULL,
             hall_id INT NULL,
             expected_students INT NULL,
@@ -188,6 +189,7 @@ def _init_sqlserver_schema():
         "IF COL_LENGTH('examination_sessions', 'hall_id') IS NULL ALTER TABLE examination_sessions ADD hall_id INT NULL;",
         "IF COL_LENGTH('examination_sessions', 'expected_students') IS NULL ALTER TABLE examination_sessions ADD expected_students INT NULL;",
         "IF COL_LENGTH('examination_sessions', 'allow_file_upload') IS NULL ALTER TABLE examination_sessions ADD allow_file_upload BIT NOT NULL CONSTRAINT DF_examination_sessions_allow_file_upload DEFAULT 0;",
+        "IF COL_LENGTH('examination_sessions', 'paper_group_code') IS NULL ALTER TABLE examination_sessions ADD paper_group_code NVARCHAR(80) NULL;",
         "IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_examination_sessions_hall') ALTER TABLE examination_sessions ADD CONSTRAINT FK_examination_sessions_hall FOREIGN KEY (hall_id) REFERENCES exam_halls(id);",
         """
         IF OBJECT_ID('attendances', 'U') IS NULL
@@ -384,10 +386,21 @@ def _init_sqlserver_schema():
             id INT IDENTITY(1,1) PRIMARY KEY,
             name NVARCHAR(120) NOT NULL UNIQUE,
             api_key_hash NVARCHAR(255) NOT NULL,
+            hall_id INT NULL,
             ip_whitelist NVARCHAR(MAX) NULL,
             is_active BIT NOT NULL DEFAULT 1,
-            created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT FK_exam_stations_hall FOREIGN KEY (hall_id) REFERENCES exam_halls(id)
         );
+        """,
+        "IF COL_LENGTH('exam_stations', 'hall_id') IS NULL ALTER TABLE exam_stations ADD hall_id INT NULL;",
+        """
+        IF COL_LENGTH('exam_stations', 'hall_id') IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_exam_stations_hall')
+        BEGIN
+            ALTER TABLE exam_stations
+            ADD CONSTRAINT FK_exam_stations_hall FOREIGN KEY (hall_id) REFERENCES exam_halls(id);
+        END
         """,
         """
         IF OBJECT_ID('verification_logs', 'U') IS NULL
@@ -423,6 +436,26 @@ def _init_sqlserver_schema():
             CONSTRAINT FK_verification_challenges_session FOREIGN KEY (session_id) REFERENCES examination_sessions(id)
         );
         """,
+        """
+        IF OBJECT_ID('verification_pause_controls', 'U') IS NULL
+        CREATE TABLE verification_pause_controls (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            session_id INT NOT NULL,
+            hall_id INT NULL,
+            pause_type NVARCHAR(20) NOT NULL,
+            reason NVARCHAR(255) NULL,
+            started_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+            started_by INT NOT NULL,
+            resumed_at DATETIME2 NULL,
+            resumed_by INT NULL,
+            pause_seconds INT NULL,
+            is_active BIT NOT NULL DEFAULT 1,
+            CONSTRAINT FK_pause_controls_session FOREIGN KEY (session_id) REFERENCES examination_sessions(id),
+            CONSTRAINT FK_pause_controls_hall FOREIGN KEY (hall_id) REFERENCES exam_halls(id),
+            CONSTRAINT FK_pause_controls_started_by FOREIGN KEY (started_by) REFERENCES admins(id),
+            CONSTRAINT FK_pause_controls_resumed_by FOREIGN KEY (resumed_by) REFERENCES admins(id)
+        );
+        """,
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_admins_username' AND object_id=OBJECT_ID('admins')) CREATE INDEX idx_admins_username ON admins (username);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_admins_email' AND object_id=OBJECT_ID('admins')) CREATE INDEX idx_admins_email ON admins (email);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_students_student_id' AND object_id=OBJECT_ID('students')) CREATE INDEX idx_students_student_id ON students (student_id);",
@@ -430,6 +463,7 @@ def _init_sqlserver_schema():
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_sessions_start_time' AND object_id=OBJECT_ID('examination_sessions')) CREATE INDEX idx_sessions_start_time ON examination_sessions (start_time);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_exam_halls_name' AND object_id=OBJECT_ID('exam_halls')) CREATE INDEX idx_exam_halls_name ON exam_halls (name);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_sessions_hall_id' AND object_id=OBJECT_ID('examination_sessions')) CREATE INDEX idx_sessions_hall_id ON examination_sessions (hall_id);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_sessions_paper_group_code' AND object_id=OBJECT_ID('examination_sessions')) CREATE INDEX idx_sessions_paper_group_code ON examination_sessions (paper_group_code);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_attendance_student_id' AND object_id=OBJECT_ID('attendances')) CREATE INDEX idx_attendance_student_id ON attendances (student_id);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_attendance_session_id' AND object_id=OBJECT_ID('attendances')) CREATE INDEX idx_attendance_session_id ON attendances (session_id);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_attendance_timestamp' AND object_id=OBJECT_ID('attendances')) CREATE INDEX idx_attendance_timestamp ON attendances ([timestamp]);",
@@ -459,6 +493,10 @@ def _init_sqlserver_schema():
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_ver_challenge_nonce' AND object_id=OBJECT_ID('verification_challenges')) CREATE INDEX idx_ver_challenge_nonce ON verification_challenges (nonce);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_ver_challenge_session_id' AND object_id=OBJECT_ID('verification_challenges')) CREATE INDEX idx_ver_challenge_session_id ON verification_challenges (session_id);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_ver_challenge_station_id' AND object_id=OBJECT_ID('verification_challenges')) CREATE INDEX idx_ver_challenge_station_id ON verification_challenges (station_id);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_exam_stations_hall_id' AND object_id=OBJECT_ID('exam_stations')) CREATE INDEX idx_exam_stations_hall_id ON exam_stations (hall_id);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_pause_controls_session_id' AND object_id=OBJECT_ID('verification_pause_controls')) CREATE INDEX idx_pause_controls_session_id ON verification_pause_controls (session_id);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_pause_controls_hall_id' AND object_id=OBJECT_ID('verification_pause_controls')) CREATE INDEX idx_pause_controls_hall_id ON verification_pause_controls (hall_id);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_pause_controls_active' AND object_id=OBJECT_ID('verification_pause_controls')) CREATE INDEX idx_pause_controls_active ON verification_pause_controls (is_active);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_academic_years_current' AND object_id=OBJECT_ID('academic_years')) CREATE INDEX idx_academic_years_current ON academic_years (is_current);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_ay_exception_year' AND object_id=OBJECT_ID('academic_year_program_exceptions')) CREATE INDEX idx_ay_exception_year ON academic_year_program_exceptions (academic_year_id);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_ay_exception_program' AND object_id=OBJECT_ID('academic_year_program_exceptions')) CREATE INDEX idx_ay_exception_program ON academic_year_program_exceptions (program_name);",
@@ -664,6 +702,7 @@ def init_db_schema():
             id SERIAL PRIMARY KEY,
             session_name VARCHAR(200) NOT NULL,
             course_code VARCHAR(50),
+            paper_group_code VARCHAR(80),
             venue VARCHAR(200),
             hall_id INTEGER REFERENCES exam_halls(id),
             expected_students INTEGER,
@@ -678,7 +717,9 @@ def init_db_schema():
         "ALTER TABLE examination_sessions ADD COLUMN IF NOT EXISTS hall_id INTEGER REFERENCES exam_halls(id);",
         "ALTER TABLE examination_sessions ADD COLUMN IF NOT EXISTS expected_students INTEGER;",
         "ALTER TABLE examination_sessions ADD COLUMN IF NOT EXISTS allow_file_upload BOOLEAN NOT NULL DEFAULT FALSE;",
+        "ALTER TABLE examination_sessions ADD COLUMN IF NOT EXISTS paper_group_code VARCHAR(80);",
         "CREATE INDEX IF NOT EXISTS idx_sessions_hall_id ON examination_sessions (hall_id);",
+        "CREATE INDEX IF NOT EXISTS idx_sessions_paper_group_code ON examination_sessions (paper_group_code);",
         "CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON examination_sessions (start_time);",
         """
         CREATE TABLE IF NOT EXISTS attendances (
@@ -876,11 +917,14 @@ def init_db_schema():
             id SERIAL PRIMARY KEY,
             name VARCHAR(120) UNIQUE NOT NULL,
             api_key_hash VARCHAR(255) NOT NULL,
+            hall_id INTEGER REFERENCES exam_halls(id),
             ip_whitelist TEXT,
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """,
+        "ALTER TABLE exam_stations ADD COLUMN IF NOT EXISTS hall_id INTEGER REFERENCES exam_halls(id);",
+        "CREATE INDEX IF NOT EXISTS idx_exam_stations_hall_id ON exam_stations (hall_id);",
         """
         CREATE TABLE IF NOT EXISTS verification_logs (
             id SERIAL PRIMARY KEY,
@@ -915,6 +959,24 @@ def init_db_schema():
         "CREATE INDEX IF NOT EXISTS idx_ver_challenge_nonce ON verification_challenges (nonce);",
         "CREATE INDEX IF NOT EXISTS idx_ver_challenge_session_id ON verification_challenges (session_id);",
         "CREATE INDEX IF NOT EXISTS idx_ver_challenge_station_id ON verification_challenges (station_id);",
+        """
+        CREATE TABLE IF NOT EXISTS verification_pause_controls (
+            id SERIAL PRIMARY KEY,
+            session_id INTEGER NOT NULL REFERENCES examination_sessions(id),
+            hall_id INTEGER REFERENCES exam_halls(id),
+            pause_type VARCHAR(20) NOT NULL,
+            reason VARCHAR(255),
+            started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            started_by INTEGER NOT NULL REFERENCES admins(id),
+            resumed_at TIMESTAMP NULL,
+            resumed_by INTEGER NULL REFERENCES admins(id),
+            pause_seconds INTEGER NULL,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_pause_controls_session_id ON verification_pause_controls (session_id);",
+        "CREATE INDEX IF NOT EXISTS idx_pause_controls_hall_id ON verification_pause_controls (hall_id);",
+        "CREATE INDEX IF NOT EXISTS idx_pause_controls_active ON verification_pause_controls (is_active);",
     ]
 
     with db_cursor() as cur:

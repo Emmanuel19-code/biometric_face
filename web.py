@@ -1226,11 +1226,12 @@ def attendance_logs_page():
                 OR LOWER(CONCAT(COALESCE(s.first_name, ''), ' ', COALESCE(s.last_name, ''))) LIKE LOWER(%s)
                 OR LOWER(COALESCE(es.course_code, '')) LIKE LOWER(%s)
                 OR LOWER(COALESCE(es.session_name, '')) LIKE LOWER(%s)
+                OR LOWER(COALESCE(ep.paper_title, '')) LIKE LOWER(%s)
             )
             """
         )
         like = f"%{q}%"
-        params.extend([like, like, like, like, like])
+        params.extend([like, like, like, like, like, like])
 
     if _has_role("lecturer"):
         admin_id = int(session.get("admin_id"))
@@ -1265,16 +1266,73 @@ def attendance_logs_page():
             s.last_name,
             es.session_name,
             es.course_code,
-            es.venue
+            es.venue,
+            ep.paper_title
         FROM verification_logs vl
         LEFT JOIN students s ON s.id = vl.student_id
         LEFT JOIN examination_sessions es ON es.id = vl.session_id
+        LEFT JOIN (
+            SELECT session_id, MIN(paper_title) AS paper_title
+            FROM exam_papers
+            GROUP BY session_id
+        ) ep ON ep.session_id = es.id
         {where_sql}
         ORDER BY vl.timestamp DESC
         LIMIT {int(limit)}
         """,
         tuple(params),
     )
+    grouped_logs = {}
+    for r in rows:
+        session_key = r.get("session_id")
+        if session_key is None:
+            session_key = f"session-na-{r.get('session_name') or r.get('course_code') or 'N/A'}"
+        session_label = r.get("course_code") or r.get("session_name") or "N/A"
+        session_bucket = grouped_logs.setdefault(
+            session_key,
+            {
+                "session_id": r.get("session_id"),
+                "session_label": session_label,
+                "session_name": r.get("session_name") or "N/A",
+                "venue": r.get("venue") or "",
+                "papers": {},
+                "total": 0,
+                "success": 0,
+                "fail": 0,
+            },
+        )
+        paper_title = r.get("paper_title") or "No Paper Title"
+        paper_bucket = session_bucket["papers"].setdefault(
+            paper_title,
+            {
+                "paper_title": paper_title,
+                "rows": [],
+                "total": 0,
+                "success": 0,
+                "fail": 0,
+            },
+        )
+        paper_bucket["rows"].append(r)
+        paper_bucket["total"] += 1
+        session_bucket["total"] += 1
+        if str(r.get("outcome") or "").upper() == "SUCCESS":
+            paper_bucket["success"] += 1
+            session_bucket["success"] += 1
+        else:
+            paper_bucket["fail"] += 1
+            session_bucket["fail"] += 1
+
+    grouped_sessions = sorted(
+        grouped_logs.values(),
+        key=lambda g: (
+            0 if g.get("session_id") is not None else 1,
+            -(int(g.get("session_id") or 0)),
+            str(g.get("session_label") or ""),
+        ),
+    )
+    for g in grouped_sessions:
+        g["paper_groups"] = sorted(g["papers"].values(), key=lambda p: str(p.get("paper_title") or "").lower())
+        del g["papers"]
 
     sessions = db_utils.fetch_all(
         """
@@ -1293,6 +1351,7 @@ def attendance_logs_page():
     return render_template(
         "attendance/logs.html",
         rows=rows,
+        grouped_sessions=grouped_sessions,
         sessions=sessions,
         filters={"session_id": session_id, "outcome": outcome, "q": q, "limit": limit},
     )

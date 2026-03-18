@@ -207,6 +207,23 @@ def _init_sqlserver_schema():
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_exam_periods_dates' AND object_id = OBJECT_ID('exam_periods')) CREATE INDEX idx_exam_periods_dates ON exam_periods(start_date, end_date);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_exam_periods_active' AND object_id = OBJECT_ID('exam_periods')) CREATE INDEX idx_exam_periods_active ON exam_periods(is_active);",
         """
+        IF OBJECT_ID('exam_period_invigilator_availability', 'U') IS NULL
+        CREATE TABLE exam_period_invigilator_availability (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            exam_period_id INT NOT NULL,
+            invigilator_id INT NOT NULL,
+            is_available BIT NOT NULL DEFAULT 1,
+            marked_by INT NULL,
+            marked_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT UQ_exam_period_invigilator UNIQUE (exam_period_id, invigilator_id),
+            CONSTRAINT FK_exam_period_invigilator_period FOREIGN KEY (exam_period_id) REFERENCES exam_periods(id),
+            CONSTRAINT FK_exam_period_invigilator_admin FOREIGN KEY (invigilator_id) REFERENCES admins(id),
+            CONSTRAINT FK_exam_period_invigilator_marked_by FOREIGN KEY (marked_by) REFERENCES admins(id)
+        );
+        """,
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_epi_availability_period' AND object_id = OBJECT_ID('exam_period_invigilator_availability')) CREATE INDEX idx_epi_availability_period ON exam_period_invigilator_availability(exam_period_id);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_epi_availability_invigilator' AND object_id = OBJECT_ID('exam_period_invigilator_availability')) CREATE INDEX idx_epi_availability_invigilator ON exam_period_invigilator_availability(invigilator_id);",
+        """
         IF OBJECT_ID('exam_halls', 'U') IS NULL
         CREATE TABLE exam_halls (
             id INT IDENTITY(1,1) PRIMARY KEY,
@@ -783,6 +800,19 @@ def init_db_schema():
         "ALTER TABLE exam_periods ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;",
         "CREATE INDEX IF NOT EXISTS idx_exam_periods_dates ON exam_periods (start_date, end_date);",
         "CREATE INDEX IF NOT EXISTS idx_exam_periods_active ON exam_periods (is_active);",
+        """
+        CREATE TABLE IF NOT EXISTS exam_period_invigilator_availability (
+            id SERIAL PRIMARY KEY,
+            exam_period_id INTEGER NOT NULL REFERENCES exam_periods(id),
+            invigilator_id INTEGER NOT NULL REFERENCES admins(id),
+            is_available BOOLEAN NOT NULL DEFAULT TRUE,
+            marked_by INTEGER REFERENCES admins(id),
+            marked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (exam_period_id, invigilator_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_epi_availability_period ON exam_period_invigilator_availability (exam_period_id);",
+        "CREATE INDEX IF NOT EXISTS idx_epi_availability_invigilator ON exam_period_invigilator_availability (invigilator_id);",
         """
         CREATE TABLE IF NOT EXISTS exam_halls (
             id SERIAL PRIMARY KEY,

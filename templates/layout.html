@@ -41,6 +41,7 @@
       'web.semester_control_page': '/admin/semester-control',
       'web.lecturer_course_assignments_page': '/admin/lecturer-courses/manage',
       'web.exam_periods_page': '/admin/exam-periods/manage',
+      'web.exam_scheduler_page': '/admin/exam-scheduler',
       'web.add_lecturer_page': '/admin/lecturers/new',
       'web.add_invigilator_page': '/admin/lecturers/new',
       'web.departments_page': '/admin/departments/manage',
@@ -75,6 +76,7 @@
       <aside id="sidebar"
              class="fixed lg:static inset-y-0 left-0 z-50
                     w-72 bg-white border-r border-slate-200
+                    h-[100dvh] lg:h-screen flex flex-col
                     transform -translate-x-full lg:translate-x-0
                     transition-transform duration-200 ease-in-out">
 
@@ -97,7 +99,7 @@
           </button>
         </div>
 
-        <nav class="px-3 pb-6">
+        <nav class="px-3 pb-6 overflow-y-auto min-h-0 overscroll-contain">
           <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-2 mb-2">Main</div>
           {{ nav_link('web.dashboard_page', 'Dashboard', '*') }}
 
@@ -134,6 +136,7 @@
             {{ nav_link('web.academic_years_page', 'Academic Years', 'Y') }}
             {{ nav_link('web.semester_control_page', 'Semester Control', 'M') }}
             {{ nav_link('web.exam_periods_page', 'Exam Periods', 'X') }}
+            {{ nav_link('web.exam_scheduler_page', 'Exam Scheduler', 'W') }}
             {{ nav_link('web.lecturer_course_assignments_page', 'Lecturer Courses', 'R') }}
             {{ nav_link('web.add_lecturer_page', 'Add Lecturer', 'A') }}
             {{ nav_link('web.login_audit_logs_page', 'Login Audit Logs', 'G') }}
@@ -160,12 +163,12 @@
               Menu
             </button>
 
-            <div class="text-center">
+            <div class="text-center min-w-0 px-2">
               <div class="text-sm font-semibold">{{ title if title else "Dashboard" }}</div>
               <div class="text-[11px] text-slate-500">UPSA Attendance</div>
             </div>
 
-            <div class="px-3 py-2 rounded-full border border-slate-200 bg-slate-50 text-sm">
+            <div class="px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-xs whitespace-nowrap">
               {{ role|capitalize }}
             </div>
           </div>

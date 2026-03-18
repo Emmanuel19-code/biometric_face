@@ -107,6 +107,15 @@
                         data-active="{{ '1' if p.is_active else '0' }}">
                   {{ 'Deactivate' if p.is_active else 'Activate' }}
                 </button>
+                <a class="rounded-lg border border-slate-200 px-3 py-1 text-xs hover:bg-slate-50"
+                   href="{{ url_for('web.exam_period_detail_page', period_id=p.id) }}">
+                  View Page
+                </a>
+                <button class="trackBtn rounded-lg border border-slate-200 px-3 py-1 text-xs hover:bg-slate-50"
+                        data-id="{{ p.id }}"
+                        data-name="{{ p.period_name }}">
+                  Track
+                </button>
               </div>
             </td>
           </tr>
@@ -122,6 +131,42 @@
   </div>
 </div>
 
+<div class="mt-4 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+  <div class="flex items-center justify-between gap-2">
+    <div>
+      <div class="text-sm font-semibold">Period Tracking</div>
+      <div id="trackingLabel" class="text-xs text-slate-500 mt-1">Select a period and click Track.</div>
+    </div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-2 lg:grid-cols-6 gap-2 text-sm">
+    <div class="rounded-xl border border-slate-200 p-3"><div class="text-xs text-slate-500">Sessions</div><div id="sumSessions" class="font-semibold mt-1">0</div></div>
+    <div class="rounded-xl border border-slate-200 p-3"><div class="text-xs text-slate-500">Verifications</div><div id="sumVerifications" class="font-semibold mt-1">0</div></div>
+    <div class="rounded-xl border border-slate-200 p-3"><div class="text-xs text-slate-500">Success</div><div id="sumSuccess" class="font-semibold mt-1">0</div></div>
+    <div class="rounded-xl border border-slate-200 p-3"><div class="text-xs text-slate-500">Fail</div><div id="sumFail" class="font-semibold mt-1">0</div></div>
+    <div class="rounded-xl border border-slate-200 p-3"><div class="text-xs text-slate-500">Exam Attendance</div><div id="sumExamAttendance" class="font-semibold mt-1">0</div></div>
+    <div class="rounded-xl border border-slate-200 p-3"><div class="text-xs text-slate-500">Class Attendance</div><div id="sumClassAttendance" class="font-semibold mt-1">0</div></div>
+  </div>
+
+  <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+    <table class="w-full min-w-[900px] text-sm">
+      <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+        <tr>
+          <th class="text-left px-3 py-2">Time</th>
+          <th class="text-left px-3 py-2">Student</th>
+          <th class="text-left px-3 py-2">Session/Course</th>
+          <th class="text-left px-3 py-2">Outcome</th>
+          <th class="text-left px-3 py-2">Confidence</th>
+          <th class="text-left px-3 py-2">Reason</th>
+        </tr>
+      </thead>
+      <tbody id="trackingRows" class="divide-y">
+        <tr><td colspan="6" class="px-3 py-6 text-center text-slate-500">No tracking data loaded yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <script>
   const periodId = document.getElementById("periodId");
   const periodName = document.getElementById("periodName");
@@ -132,6 +177,14 @@
   const saveBtn = document.getElementById("saveBtn");
   const clearBtn = document.getElementById("clearBtn");
   const formMsg = document.getElementById("formMsg");
+  const trackingLabel = document.getElementById("trackingLabel");
+  const trackingRows = document.getElementById("trackingRows");
+  const sumSessions = document.getElementById("sumSessions");
+  const sumVerifications = document.getElementById("sumVerifications");
+  const sumSuccess = document.getElementById("sumSuccess");
+  const sumFail = document.getElementById("sumFail");
+  const sumExamAttendance = document.getElementById("sumExamAttendance");
+  const sumClassAttendance = document.getElementById("sumClassAttendance");
 
   function setMsg(text, good) {
     formMsg.className = `text-sm ${good ? "text-emerald-700" : "text-rose-700"}`;
@@ -146,6 +199,55 @@
     endDate.value = "";
     isActive.checked = true;
     setMsg("", true);
+  }
+
+  function setTrackingSummary(summary = {}) {
+    sumSessions.textContent = Number(summary.sessions || 0);
+    sumVerifications.textContent = Number(summary.verifications_total || 0);
+    sumSuccess.textContent = Number(summary.verifications_success || 0);
+    sumFail.textContent = Number(summary.verifications_fail || 0);
+    sumExamAttendance.textContent = Number(summary.exam_attendance || 0);
+    sumClassAttendance.textContent = Number(summary.class_attendance || 0);
+  }
+
+  function renderTrackingRows(rows = []) {
+    if (!rows.length) {
+      trackingRows.innerHTML = '<tr><td colspan="6" class="px-3 py-6 text-center text-slate-500">No activity recorded in this period.</td></tr>';
+      return;
+    }
+    trackingRows.innerHTML = rows.map((r) => {
+      const ts = r.timestamp ? String(r.timestamp).replace("T", " ").slice(0, 19) : "N/A";
+      const student = `${(r.first_name || "").trim()} ${(r.last_name || "").trim()}`.trim() || "Unknown Student";
+      const idx = r.index_no ? ` (${r.index_no})` : "";
+      const outcome = String(r.outcome || "");
+      return `
+        <tr>
+          <td class="px-3 py-2">${ts}</td>
+          <td class="px-3 py-2">${student}${idx}</td>
+          <td class="px-3 py-2">${r.session_label || "N/A"}</td>
+          <td class="px-3 py-2">${outcome}</td>
+          <td class="px-3 py-2">${r.confidence ?? "-"}</td>
+          <td class="px-3 py-2">${r.reason || "-"}</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  async function loadTracking(periodId, periodName = "") {
+    trackingLabel.textContent = "Loading tracking data...";
+    try {
+      const res = await fetch(`/admin/exam-periods/${periodId}/tracking`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to load tracking.");
+      const p = body.period || {};
+      trackingLabel.textContent = `${p.period_name || periodName || "Selected period"} (${p.period_type || "-"}) | ${p.start_date || "-"} to ${p.end_date || "-"}`;
+      setTrackingSummary(body.summary || {});
+      renderTrackingRows(Array.isArray(body.recent_logs) ? body.recent_logs : []);
+    } catch (err) {
+      trackingLabel.textContent = err.message || "Failed to load tracking.";
+      setTrackingSummary({});
+      renderTrackingRows([]);
+    }
   }
 
   async function savePeriod() {
@@ -214,8 +316,17 @@
     });
   });
 
+  document.querySelectorAll(".trackBtn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      loadTracking(btn.dataset.id, btn.dataset.name || "");
+    });
+  });
+
   saveBtn.addEventListener("click", savePeriod);
   clearBtn.addEventListener("click", clearForm);
+  {% if active_period and active_period.id %}
+  loadTracking({{ active_period.id }}, "{{ active_period.period_name|replace('\"','\\\"') }}");
+  {% endif %}
 </script>
 
 {% endblock %}

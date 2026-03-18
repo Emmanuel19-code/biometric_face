@@ -1,0 +1,546 @@
+{% extends "layout.html" %}
+{% set title = "Exam Scheduler" %}
+{% block content %}
+<div class="space-y-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <div class="text-sm font-semibold">Exam Scheduler</div>
+        <p class="text-xs text-slate-500 mt-1">
+          Create exam sessions by selecting days, courses, paper durations, halls, and available invigilators.
+        </p>
+      </div>
+      <div class="w-full sm:w-80">
+        <label class="text-xs text-slate-500">Exam Period</label>
+        <select id="periodSelect" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2">
+          {% for p in periods %}
+          <option value="{{ p.id }}" data-period-type="{{ p.period_type }}" {% if selected_period and p.id == selected_period.id %}selected{% endif %}>
+            {{ p.period_name }} ({{ p.period_type }}) | {{ p.start_date }} to {{ p.end_date }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    {% if selected_period %}
+    <div class="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+      Selected period: <strong>{{ selected_period.period_name }}</strong> ({{ selected_period.period_type }}) |
+      {{ selected_period.start_date }} to {{ selected_period.end_date }}
+    </div>
+    {% else %}
+    <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+      No exam period found. Create one first on the Exam Periods page.
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+    <div class="xl:col-span-1 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+      <div class="text-sm font-semibold">Invigilator Availability</div>
+      <p class="text-xs text-slate-500 mt-1">
+        Mark lecturers available for the selected exam period. Scheduler uses this pool for random assignment.
+      </p>
+
+      <div class="mt-3 max-h-80 overflow-auto border border-slate-200 rounded-xl p-3 space-y-2">
+        {% if lecturers %}
+          {% for inv in lecturers %}
+          <label class="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              class="avail-inv"
+              value="{{ inv.id }}"
+              {% if inv.id in available_invigilator_ids %}checked{% endif %}
+            >
+            <span>{{ inv.full_name or inv.username }}{% if inv.email %} ({{ inv.email }}){% endif %}</span>
+          </label>
+          {% endfor %}
+        {% else %}
+        <div class="text-sm text-slate-500">No active lecturers found.</div>
+        {% endif %}
+      </div>
+
+      <button id="saveAvailabilityBtn" class="mt-3 w-full rounded-xl bg-brand-600 text-white py-2 font-semibold hover:bg-brand-700">
+        Save Availability
+      </button>
+      <p id="availabilityMsg" class="text-sm mt-2"></p>
+    </div>
+
+    <div class="xl:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
+      <div>
+        <div class="text-sm font-semibold">Build Schedule</div>
+        <p class="text-xs text-slate-500 mt-1">
+          Add exam days and courses. Papers are allocated sequentially within the day window.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <div>
+          <label class="text-xs text-slate-500">Exam Day Start Time</label>
+          <input id="examDayStartTime" type="time" value="05:00" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Exam Day End Time</label>
+          <input id="examDayEndTime" type="time" value="20:00" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Gap Between Papers (Minutes)</label>
+          <input id="paperGapMinutes" type="number" value="15" min="0" max="180" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Invigilator Cooldown (Minutes)</label>
+          <input id="invigilatorCooldownMinutes" type="number" value="15" min="0" max="240" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+        </div>
+        {% set default_hours = 1 if selected_period and selected_period.period_type == "MIDSEM" else 2 %}
+        <div>
+          <label class="text-xs text-slate-500">Default Paper Duration (Hours)</label>
+          <input id="defaultPaperDurationHours" type="number" step="0.5" min="0.5" max="8" value="{{ default_hours }}" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Shared Paper Hall Mode</label>
+          <select id="sharedPaperHallMode" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+            <option value="same_halls">Keep same paper groups together (same hall pool)</option>
+            <option value="separate_halls">Separate by programme/level into different halls</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+        <input id="allowFileUpload" type="checkbox" class="rounded border-slate-300">
+        <span>Allow file upload during verification for generated sessions</span>
+      </label>
+
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs font-semibold text-slate-700">Exam Days</div>
+        <div class="mt-2">
+          <div class="text-xs text-slate-500">Auto-generate from exam period using weekdays</div>
+          <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+            <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" class="weekday-check" value="0">Mon</label>
+            <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" class="weekday-check" value="1">Tue</label>
+            <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" class="weekday-check" value="2">Wed</label>
+            <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" class="weekday-check" value="3">Thu</label>
+            <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" class="weekday-check" value="4">Fri</label>
+            <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" class="weekday-check" value="5">Sat</label>
+            <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" class="weekday-check" value="6">Sun</label>
+          </div>
+          <div class="mt-2 flex gap-2">
+            <button id="autoFillDaysBtn" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold hover:bg-slate-50">
+              Auto Fill Days
+            </button>
+          </div>
+          <input
+            id="periodStartDate"
+            type="hidden"
+            value="{{ selected_period.start_date.strftime('%Y-%m-%d') if selected_period and selected_period.start_date else '' }}"
+          >
+          <input
+            id="periodEndDate"
+            type="hidden"
+            value="{{ selected_period.end_date.strftime('%Y-%m-%d') if selected_period and selected_period.end_date else '' }}"
+          >
+        </div>
+        <div class="mt-2 flex flex-col sm:flex-row gap-2">
+          <input id="examDayInput" type="date" class="rounded-xl border border-slate-200 px-3 py-2 w-full sm:w-56">
+          <button id="addExamDayBtn" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold hover:bg-slate-50">
+            Add Day
+          </button>
+          <button id="clearExamDaysBtn" class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+            Clear Days
+          </button>
+        </div>
+        <div id="examDaysList" class="mt-2 flex flex-wrap gap-2"></div>
+      </div>
+
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs font-semibold text-slate-700">Courses and Duration</div>
+        <div class="mt-2 grid grid-cols-1 md:grid-cols-[1fr_180px_auto] gap-2">
+          <select id="courseSelect" class="rounded-xl border border-slate-200 px-3 py-2">
+            <option value="">Select course</option>
+            {% for c in courses %}
+            <option value="{{ c.course_code }}">{{ c.course_code }}{% if c.course_title %} - {{ c.course_title }}{% endif %}</option>
+            {% endfor %}
+          </select>
+          <input id="courseDurationHours" type="number" step="0.5" min="0.5" max="8" value="" class="rounded-xl border border-slate-200 px-3 py-2" placeholder="Optional duration (hours)">
+          <button id="addCourseBtn" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold hover:bg-slate-50">
+            Add Course
+          </button>
+        </div>
+        <div class="mt-3 overflow-x-auto">
+          <table class="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
+            <thead class="bg-slate-50 text-slate-700">
+              <tr>
+                <th class="text-left px-3 py-2">Course</th>
+                <th class="text-left px-3 py-2">Duration</th>
+                <th class="text-left px-3 py-2">Action</th>
+              </tr>
+            </thead>
+            <tbody id="courseRows">
+              <tr><td colspan="3" class="px-3 py-4 text-slate-500 text-center">No courses added yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs font-semibold text-slate-700">Halls and Invigilators Required</div>
+        <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-auto pr-1">
+          {% for h in halls %}
+          <div class="rounded-lg border border-slate-200 px-3 py-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" class="hall-check" value="{{ h.id }}" data-capacity="{{ h.capacity }}">
+              <span>{{ h.name }} (Capacity: {{ h.capacity }})</span>
+            </label>
+            <div class="mt-2">
+              <input
+                type="number"
+                min="1"
+                max="8"
+                value="2"
+                data-hall-input="{{ h.id }}"
+                class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Invigilators for this hall"
+              >
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <button id="generateScheduleBtn" class="w-full rounded-xl bg-emerald-600 text-white py-3 font-semibold hover:bg-emerald-700">
+        Generate Exam Schedule
+      </button>
+      <p id="scheduleMsg" class="text-sm"></p>
+      <div id="scheduleSummary" class="hidden rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const periodSelect = document.getElementById("periodSelect");
+  const saveAvailabilityBtn = document.getElementById("saveAvailabilityBtn");
+  const availabilityMsg = document.getElementById("availabilityMsg");
+  const examDayStartTimeInput = document.getElementById("examDayStartTime");
+  const examDayEndTimeInput = document.getElementById("examDayEndTime");
+  const paperGapMinutesInput = document.getElementById("paperGapMinutes");
+  const invigilatorCooldownMinutesInput = document.getElementById("invigilatorCooldownMinutes");
+  const defaultPaperDurationHoursInput = document.getElementById("defaultPaperDurationHours");
+  const sharedPaperHallModeInput = document.getElementById("sharedPaperHallMode");
+  const allowFileUploadInput = document.getElementById("allowFileUpload");
+  const examDayInput = document.getElementById("examDayInput");
+  const addExamDayBtn = document.getElementById("addExamDayBtn");
+  const autoFillDaysBtn = document.getElementById("autoFillDaysBtn");
+  const clearExamDaysBtn = document.getElementById("clearExamDaysBtn");
+  const examDaysList = document.getElementById("examDaysList");
+  const periodStartDateInput = document.getElementById("periodStartDate");
+  const periodEndDateInput = document.getElementById("periodEndDate");
+  const courseSelect = document.getElementById("courseSelect");
+  const courseDurationHoursInput = document.getElementById("courseDurationHours");
+  const addCourseBtn = document.getElementById("addCourseBtn");
+  const courseRows = document.getElementById("courseRows");
+  const generateScheduleBtn = document.getElementById("generateScheduleBtn");
+  const scheduleMsg = document.getElementById("scheduleMsg");
+  const scheduleSummary = document.getElementById("scheduleSummary");
+
+  const selectedDays = new Set();
+  const selectedCourses = new Map();
+
+  function getSelectedWeekdays() {
+    return Array.from(document.querySelectorAll(".weekday-check:checked"))
+      .map((el) => Number(el.value))
+      .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+      .sort((a, b) => a - b);
+  }
+
+  function parseIsoDateToUtcDate(s) {
+    const raw = String(s || "").trim();
+    if (!raw) return null;
+    const parts = raw.split("-");
+    if (parts.length !== 3) return null;
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return null;
+    return new Date(Date.UTC(y, m - 1, d));
+  }
+
+  function toIsoDateUtc(d) {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function setMessage(el, text, ok = false) {
+    el.textContent = text;
+    el.className = ok ? "text-sm text-emerald-700" : "text-sm text-rose-700";
+  }
+
+  function defaultInvigilatorsFromCapacity(capacity) {
+    const c = Number(capacity || 0);
+    if (c <= 0) return 2;
+    if (c <= 120) return 2;
+    if (c <= 250) return 3;
+    return 4;
+  }
+
+  function renderExamDays() {
+    const days = Array.from(selectedDays).sort();
+    if (!days.length) {
+      examDaysList.innerHTML = '<span class="text-sm text-slate-500">No days selected.</span>';
+      return;
+    }
+    examDaysList.innerHTML = days.map((day) => `
+      <button type="button" data-day="${day}" class="rounded-full border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50">
+        ${day} x
+      </button>
+    `).join("");
+  }
+
+  function renderCourseRows() {
+    const entries = Array.from(selectedCourses.values());
+    if (!entries.length) {
+      courseRows.innerHTML = '<tr><td colspan="3" class="px-3 py-4 text-slate-500 text-center">No courses added yet.</td></tr>';
+      return;
+    }
+    courseRows.innerHTML = entries.map((row) => `
+      <tr class="border-t border-slate-100">
+        <td class="px-3 py-2">${row.course_code}${row.course_title ? " - " + row.course_title : ""}</td>
+        <td class="px-3 py-2">${row.duration_hours} hour(s) (${row.duration_minutes} minutes)</td>
+        <td class="px-3 py-2">
+          <button type="button" data-remove-code="${row.course_code}" class="text-rose-600 hover:text-rose-700">Remove</button>
+        </td>
+      </tr>
+    `).join("");
+  }
+
+  function defaultHoursByPeriod() {
+    const opt = periodSelect?.options?.[periodSelect.selectedIndex];
+    const periodType = String(opt?.dataset?.periodType || "").toUpperCase();
+    return periodType === "MIDSEM" ? 1 : 2;
+  }
+
+  periodSelect?.addEventListener("change", () => {
+    const periodId = periodSelect.value;
+    if (!periodId) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("period_id", periodId);
+    window.location.href = url.toString();
+  });
+
+  document.querySelectorAll(".hall-check").forEach((checkbox) => {
+    const hallId = Number(checkbox.value);
+    const input = document.querySelector(`[data-hall-input="${hallId}"]`);
+    if (!input) return;
+    const auto = defaultInvigilatorsFromCapacity(checkbox.dataset.capacity);
+    input.value = String(auto);
+    input.disabled = !checkbox.checked;
+    checkbox.addEventListener("change", () => {
+      input.disabled = !checkbox.checked;
+      if (checkbox.checked && !input.value) {
+        input.value = String(auto);
+      }
+    });
+  });
+
+  addExamDayBtn?.addEventListener("click", () => {
+    const day = (examDayInput.value || "").trim();
+    if (!day) return;
+    selectedDays.add(day);
+    renderExamDays();
+    examDayInput.value = "";
+  });
+
+  autoFillDaysBtn?.addEventListener("click", () => {
+    const weekdays = getSelectedWeekdays();
+    if (!weekdays.length) {
+      setMessage(scheduleMsg, "Select at least one weekday to auto-fill exam days.");
+      return;
+    }
+
+    const startDate = parseIsoDateToUtcDate(periodStartDateInput?.value);
+    const endDate = parseIsoDateToUtcDate(periodEndDateInput?.value);
+    if (!startDate || !endDate || startDate > endDate) {
+      setMessage(scheduleMsg, "Selected exam period does not have valid start and end dates.");
+      return;
+    }
+
+    selectedDays.clear();
+    const cursor = new Date(startDate.getTime());
+    while (cursor <= endDate) {
+      const jsDay = cursor.getUTCDay(); // Sun=0...Sat=6
+      const pyDay = (jsDay + 6) % 7; // Mon=0...Sun=6
+      if (weekdays.includes(pyDay)) {
+        selectedDays.add(toIsoDateUtc(cursor));
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+
+    renderExamDays();
+    if (!selectedDays.size) {
+      setMessage(scheduleMsg, "No matching days found in the selected exam period.", false);
+      return;
+    }
+    setMessage(scheduleMsg, `Auto-filled ${selectedDays.size} exam day(s) from selected weekdays.`, true);
+  });
+
+  clearExamDaysBtn?.addEventListener("click", () => {
+    selectedDays.clear();
+    renderExamDays();
+  });
+
+  examDaysList?.addEventListener("click", (e) => {
+    const target = e.target.closest("[data-day]");
+    if (!target) return;
+    selectedDays.delete(target.dataset.day);
+    renderExamDays();
+  });
+
+  addCourseBtn?.addEventListener("click", () => {
+    const code = (courseSelect.value || "").trim().toUpperCase();
+    if (!code) return;
+    const defaultHours = Number(defaultPaperDurationHoursInput?.value || defaultHoursByPeriod());
+    if (!Number.isFinite(defaultHours) || defaultHours < 0.5 || defaultHours > 8) {
+      setMessage(scheduleMsg, "Default paper duration must be between 0.5 and 8 hours.");
+      return;
+    }
+    const rawCourseDuration = String(courseDurationHoursInput.value || "").trim();
+    const durationHours = rawCourseDuration ? Number(rawCourseDuration) : defaultHours;
+    if (!Number.isFinite(durationHours) || durationHours < 0.5 || durationHours > 8) {
+      setMessage(scheduleMsg, "Course duration must be between 0.5 and 8 hours.");
+      return;
+    }
+    const durationMinutes = Math.round(durationHours * 60);
+    const label = courseSelect.options[courseSelect.selectedIndex]?.text || code;
+    const title = label.includes(" - ") ? label.split(" - ").slice(1).join(" - ").trim() : "";
+    selectedCourses.set(code, {
+      course_code: code,
+      course_title: title,
+      duration_hours: Number(durationHours.toFixed(2)),
+      duration_minutes: durationMinutes
+    });
+    renderCourseRows();
+    setMessage(scheduleMsg, "", true);
+  });
+
+  courseRows?.addEventListener("click", (e) => {
+    const target = e.target.closest("[data-remove-code]");
+    if (!target) return;
+    selectedCourses.delete(target.dataset.removeCode);
+    renderCourseRows();
+  });
+
+  saveAvailabilityBtn?.addEventListener("click", async () => {
+    const periodId = periodSelect.value;
+    if (!periodId) {
+      setMessage(availabilityMsg, "Select an exam period first.");
+      return;
+    }
+    const invigilatorIds = Array.from(document.querySelectorAll(".avail-inv:checked")).map((el) => Number(el.value));
+    const res = await fetch(`/admin/exam-periods/${periodId}/invigilator-availability`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invigilator_ids: invigilatorIds })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessage(availabilityMsg, data.error || "Failed to save availability.");
+      return;
+    }
+    setMessage(availabilityMsg, `Availability saved (${data.available_count || 0} selected).`, true);
+  });
+
+  generateScheduleBtn?.addEventListener("click", async () => {
+    const periodId = Number(periodSelect.value);
+    if (!periodId) {
+      setMessage(scheduleMsg, "Select an exam period first.");
+      return;
+    }
+    const days = Array.from(selectedDays).sort();
+    const selectedWeekdays = getSelectedWeekdays();
+    if (!days.length && !selectedWeekdays.length) {
+      setMessage(scheduleMsg, "Add at least one exam day or select weekdays for automatic generation.");
+      return;
+    }
+    const dayStart = String(examDayStartTimeInput?.value || "").trim();
+    const dayEnd = String(examDayEndTimeInput?.value || "").trim();
+    if (!dayStart || !dayEnd) {
+      setMessage(scheduleMsg, "Set exam day start and end times.");
+      return;
+    }
+    if (dayStart >= dayEnd) {
+      setMessage(scheduleMsg, "Exam day end time must be later than exam day start time.");
+      return;
+    }
+    const defaultHours = Number(defaultPaperDurationHoursInput?.value || defaultHoursByPeriod());
+    if (!Number.isFinite(defaultHours) || defaultHours < 0.5 || defaultHours > 8) {
+      setMessage(scheduleMsg, "Default paper duration must be between 0.5 and 8 hours.");
+      return;
+    }
+    const courses = Array.from(selectedCourses.values());
+    if (!courses.length) {
+      setMessage(scheduleMsg, "Add at least one course with duration.");
+      return;
+    }
+    const selectedHallChecks = Array.from(document.querySelectorAll(".hall-check:checked"));
+    if (!selectedHallChecks.length) {
+      setMessage(scheduleMsg, "Select at least one hall.");
+      return;
+    }
+    const hallConfigs = [];
+    for (const hallCheck of selectedHallChecks) {
+      const hallId = Number(hallCheck.value);
+      const hallInput = document.querySelector(`[data-hall-input="${hallId}"]`);
+      const invigilatorsRequired = Number(hallInput?.value);
+      if (!Number.isFinite(invigilatorsRequired) || invigilatorsRequired < 1 || invigilatorsRequired > 8) {
+        setMessage(scheduleMsg, `Set a valid invigilator count (1-8) for hall ${hallId}.`);
+        return;
+      }
+      hallConfigs.push({
+        hall_id: hallId,
+        invigilators_required: Math.round(invigilatorsRequired)
+      });
+    }
+
+    const payload = {
+      period_id: periodId,
+      exam_day_start_time: dayStart,
+      exam_day_end_time: dayEnd,
+      default_paper_duration_hours: defaultHours,
+      shared_paper_hall_mode: String(sharedPaperHallModeInput?.value || "same_halls"),
+      paper_gap_minutes: Number(paperGapMinutesInput.value),
+      invigilator_cooldown_minutes: Number(invigilatorCooldownMinutesInput.value),
+      allow_file_upload: !!allowFileUploadInput.checked,
+      exam_days: days,
+      selected_weekdays: selectedWeekdays,
+      courses,
+      hall_configs: hallConfigs
+    };
+
+    const res = await fetch("/admin/exam-scheduler/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const prefix = res.status === 409 ? "Warning: " : "";
+      setMessage(scheduleMsg, prefix + (data.error || "Failed to generate schedule."));
+      scheduleSummary.classList.add("hidden");
+      return;
+    }
+    setMessage(scheduleMsg, data.message || "Schedule generated.", true);
+    scheduleSummary.classList.remove("hidden");
+    scheduleSummary.innerHTML = `
+      <div><strong>Period:</strong> ${data.period_name || data.period_id}</div>
+      <div><strong>Sessions Created:</strong> ${data.session_count || 0}</div>
+      <div><strong>Paper Slots:</strong> ${data.slots_count || 0}</div>
+      <div><strong>Exam Days Used:</strong> ${data.exam_days_count || 0}</div>
+      <div><strong>Day Window:</strong> ${data.exam_day_start_time || "-"} to ${data.exam_day_end_time || "-"}</div>
+      <div><strong>Shared Paper Hall Mode:</strong> ${data.shared_paper_hall_mode || "same_halls"}</div>
+      <div><strong>Paper Gap:</strong> ${data.paper_gap_minutes || 0} minute(s)</div>
+      <div><strong>Invigilator Cooldown:</strong> ${data.invigilator_cooldown_minutes || 0} minute(s)</div>
+    `;
+  });
+
+  renderExamDays();
+  renderCourseRows();
+</script>
+{% endblock %}

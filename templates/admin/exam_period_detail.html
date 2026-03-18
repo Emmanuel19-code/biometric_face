@@ -1,0 +1,179 @@
+{% extends "layout.html" %}
+{% set title = "Exam Period Details" %}
+{% block content %}
+
+<div class="space-y-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div>
+        <div class="text-sm font-semibold">{{ period.period_name }} ({{ period.period_type }})</div>
+        <div class="text-xs text-slate-500 mt-1">
+          Period: {{ period.start_date.strftime('%Y-%m-%d') if period.start_date else '-' }} to {{ period.end_date.strftime('%Y-%m-%d') if period.end_date else '-' }}
+        </div>
+      </div>
+      <a href="{{ url_for('web.exam_periods_page') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold hover:bg-slate-50">
+        Back to Exam Periods
+      </a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 lg:grid-cols-6 gap-2 text-sm">
+    <div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs text-slate-500">Sessions</div><div class="font-semibold mt-1">{{ summary.sessions or 0 }}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs text-slate-500">Verifications</div><div class="font-semibold mt-1">{{ summary.verifications_total or 0 }}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs text-slate-500">Success</div><div class="font-semibold mt-1">{{ summary.verifications_success or 0 }}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs text-slate-500">Fail</div><div class="font-semibold mt-1">{{ summary.verifications_fail or 0 }}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs text-slate-500">Exam Attendance</div><div class="font-semibold mt-1">{{ summary.exam_attendance or 0 }}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs text-slate-500">Class Attendance</div><div class="font-semibold mt-1">{{ summary.class_attendance or 0 }}</div></div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">Sessions in This Period</div>
+    <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+      <table class="w-full min-w-[860px] text-sm">
+        <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+          <tr>
+            <th class="text-left px-3 py-2">Session Name</th>
+            <th class="text-left px-3 py-2">Course</th>
+            <th class="text-left px-3 py-2">Venue</th>
+            <th class="text-left px-3 py-2">Start</th>
+            <th class="text-left px-3 py-2">End</th>
+            <th class="text-left px-3 py-2">Status</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y">
+          {% for s in sessions %}
+          <tr>
+            <td class="px-3 py-2">{{ s.session_name or '-' }}</td>
+            <td class="px-3 py-2">{{ s.course_code or '-' }}</td>
+            <td class="px-3 py-2">{{ s.venue or '-' }}</td>
+            <td class="px-3 py-2">{{ s.start_time.strftime('%Y-%m-%d %H:%M') if s.start_time else '-' }}</td>
+            <td class="px-3 py-2">{{ s.end_time.strftime('%Y-%m-%d %H:%M') if s.end_time else '-' }}</td>
+            <td class="px-3 py-2">
+              {% if s.is_active %}
+              <span class="inline-flex rounded-full bg-emerald-50 text-emerald-700 px-2 py-1 text-xs">Active</span>
+              {% else %}
+              <span class="inline-flex rounded-full bg-slate-100 text-slate-600 px-2 py-1 text-xs">Inactive</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not sessions %}
+          <tr><td colspan="6" class="px-3 py-6 text-center text-slate-500">No sessions recorded in this period.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">Courses Written, Students, and Invigilators</div>
+    <div class="text-xs text-slate-500 mt-1">Precise per-session records for this period window.</div>
+
+    {% if detailed_runs and detailed_runs|length > 0 %}
+    <div class="mt-4 space-y-4">
+      {% for run in detailed_runs %}
+      <div class="rounded-xl border border-slate-200">
+        <div class="px-4 py-3 bg-slate-50 border-b border-slate-200">
+          <div class="text-sm font-semibold">
+            {{ run.course_code or 'N/A' }}{% if run.session_name %} - {{ run.session_name }}{% endif %}
+          </div>
+          <div class="text-xs text-slate-500 mt-1">
+            Venue: {{ run.venue or '-' }} |
+            Start: {{ run.start_time.strftime('%Y-%m-%d %H:%M') if run.start_time else '-' }} |
+            End: {{ run.end_time.strftime('%Y-%m-%d %H:%M') if run.end_time else '-' }} |
+            Students: {{ run.student_count or 0 }} |
+            Invigilators: {{ run.invigilator_count or 0 }}
+          </div>
+        </div>
+
+        <div class="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div>
+            <div class="text-xs font-semibold text-slate-600 mb-2">Papers</div>
+            {% if run.papers and run.papers|length > 0 %}
+            <ul class="text-sm text-slate-700 space-y-1">
+              {% for p in run.papers %}
+              <li>
+                {{ p.paper_title or '-' }}{% if p.paper_code %} ({{ p.paper_code }}){% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <div class="text-sm text-slate-500">No papers attached.</div>
+            {% endif %}
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold text-slate-600 mb-2">Invigilators</div>
+            {% if run.invigilators and run.invigilators|length > 0 %}
+            <ul class="text-sm text-slate-700 space-y-1">
+              {% for inv in run.invigilators %}
+              <li>
+                {{ inv.full_name or '-' }}{% if inv.email %} - {{ inv.email }}{% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <div class="text-sm text-slate-500">No invigilators assigned.</div>
+            {% endif %}
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold text-slate-600 mb-2">Students Who Wrote</div>
+            {% if run.students and run.students|length > 0 %}
+            <ul class="text-sm text-slate-700 space-y-1 max-h-56 overflow-auto pr-1">
+              {% for st in run.students %}
+              <li>
+                {{ st.full_name or '-' }}{% if st.student_id %} ({{ st.student_id }}){% endif %}
+                {% if st.timestamp %} - {{ st.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}{% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <div class="text-sm text-slate-500">No attendance records for this session.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="mt-4 text-sm text-slate-500">No course run details recorded for this period.</div>
+    {% endif %}
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+    <div class="text-sm font-semibold">Recent Verification Logs in This Period</div>
+    <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+      <table class="w-full min-w-[900px] text-sm">
+        <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+          <tr>
+            <th class="text-left px-3 py-2">Time</th>
+            <th class="text-left px-3 py-2">Student</th>
+            <th class="text-left px-3 py-2">Session/Course</th>
+            <th class="text-left px-3 py-2">Outcome</th>
+            <th class="text-left px-3 py-2">Confidence</th>
+            <th class="text-left px-3 py-2">Reason</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y">
+          {% for r in recent_logs %}
+          {% set student_name = ((r.first_name or '') ~ ' ' ~ (r.last_name or ''))|trim %}
+          <tr>
+            <td class="px-3 py-2">{{ r.timestamp.strftime('%Y-%m-%d %H:%M:%S') if r.timestamp else '-' }}</td>
+            <td class="px-3 py-2">{{ student_name or 'Unknown Student' }}{% if r.index_no %} ({{ r.index_no }}){% endif %}</td>
+            <td class="px-3 py-2">{{ r.session_label or '-' }}</td>
+            <td class="px-3 py-2">{{ r.outcome or '-' }}</td>
+            <td class="px-3 py-2">{{ r.confidence if r.confidence is not none else '-' }}</td>
+            <td class="px-3 py-2">{{ r.reason or '-' }}</td>
+          </tr>
+          {% endfor %}
+          {% if not recent_logs %}
+          <tr><td colspan="6" class="px-3 py-6 text-center text-slate-500">No verification logs recorded in this period.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

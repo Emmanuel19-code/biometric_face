@@ -1,8 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 import re
 import calendar
 import os
+import random
+import math
 from flask import Blueprint, render_template, redirect, url_for, request, session, abort, jsonify, current_app
 from functools import wraps
 import base64
@@ -314,6 +316,430 @@ def _get_current_open_exam_period(for_date=None):
     )
 
 
+def _get_exam_period_by_id(period_id):
+    try:
+        pid = int(period_id)
+    except (TypeError, ValueError):
+        return None
+    return db_utils.fetch_one(
+        """
+        SELECT id, period_name, period_type, start_date, end_date, is_active
+        FROM exam_periods
+        WHERE id = %s
+        LIMIT 1
+        """,
+        (pid,),
+    )
+
+
+def _parse_hhmm_time(value):
+    raw = str(value or "").strip()
+    try:
+        return datetime.strptime(raw, "%H:%M").time()
+    except ValueError:
+        raise ValueError("time value must be in HH:MM format")
+
+
+def _expand_period_days_by_weekdays(start_date, end_date, weekday_indexes):
+    """
+    Build all dates within [start_date, end_date] whose weekday is selected.
+    Weekday format: Monday=0 ... Sunday=6
+    """
+    selected = {int(w) for w in weekday_indexes if 0 <= int(w) <= 6}
+    if not selected:
+        return []
+    cursor = start_date
+    out = []
+    while cursor <= end_date:
+        if int(cursor.weekday()) in selected:
+            out.append(cursor)
+        cursor = cursor + timedelta(days=1)
+    return out
+
+
+def _build_scheduler_course_catalog():
+    rows = db_utils.fetch_all(
+        """
+        SELECT
+            UPPER(course_code) AS course_code,
+            MAX(course_title) AS course_title
+        FROM program_level_courses
+        WHERE is_active = TRUE
+          AND COALESCE(LTRIM(RTRIM(course_code)), '') <> ''
+        GROUP BY UPPER(course_code)
+        ORDER BY UPPER(course_code) ASC
+        """
+    )
+    out = []
+    for row in rows:
+        code = str(row.get("course_code") or "").strip().upper()
+        if not code:
+            continue
+        out.append(
+            {
+                "course_code": code,
+                "course_title": str(row.get("course_title") or "").strip(),
+            }
+        )
+    return out
+
+
+def _fetch_scheduler_course_details(course_codes):
+    valid_codes = []
+    for code in course_codes or []:
+        cleaned = str(code or "").strip().upper()
+        if cleaned:
+            valid_codes.append(cleaned)
+    valid_codes = sorted(set(valid_codes))
+    if not valid_codes:
+        return {}
+
+    placeholders = ", ".join(["%s"] * len(valid_codes))
+    rows = db_utils.fetch_all(
+        f"""
+        SELECT UPPER(course_code) AS course_code, MAX(course_title) AS course_title
+        FROM program_level_courses
+        WHERE is_active = TRUE
+          AND UPPER(course_code) IN ({placeholders})
+        GROUP BY UPPER(course_code)
+        ORDER BY UPPER(course_code) ASC
+        """,
+        tuple(valid_codes),
+    )
+    out = {}
+    for row in rows:
+        code = str(row.get("course_code") or "").strip().upper()
+        if not code:
+            continue
+        out[code] = {
+            "course_code": code,
+            "course_title": str(row.get("course_title") or "").strip(),
+        }
+    return out
+
+
+def _fetch_course_registration_counts(course_codes):
+    valid_codes = []
+    for code in course_codes or []:
+        cleaned = str(code or "").strip().upper()
+        if cleaned:
+            valid_codes.append(cleaned)
+    valid_codes = sorted(set(valid_codes))
+    if not valid_codes:
+        return {}
+    placeholders = ", ".join(["%s"] * len(valid_codes))
+    rows = db_utils.fetch_all(
+        f"""
+        SELECT UPPER(course_code) AS course_code, COUNT(DISTINCT student_id) AS c
+        FROM student_course_registrations
+        WHERE UPPER(course_code) IN ({placeholders})
+        GROUP BY UPPER(course_code)
+        """,
+        tuple(valid_codes),
+    )
+    out = {}
+    for row in rows:
+        code = str(row.get("course_code") or "").strip().upper()
+        if not code:
+            continue
+        out[code] = int(row.get("c") or 0)
+    return out
+
+
+def _fetch_course_registration_breakdown(course_codes):
+    valid_codes = []
+    for code in course_codes or []:
+        cleaned = str(code or "").strip().upper()
+        if cleaned:
+            valid_codes.append(cleaned)
+    valid_codes = sorted(set(valid_codes))
+    if not valid_codes:
+        return {}
+    placeholders = ", ".join(["%s"] * len(valid_codes))
+    rows = db_utils.fetch_all(
+        f"""
+        SELECT
+            UPPER(course_code) AS course_code,
+            COALESCE(NULLIF(LTRIM(RTRIM(program_name)), ''), 'UNSPECIFIED') AS program_name,
+            COALESCE(NULLIF(LTRIM(RTRIM(level_name)), ''), 'UNSPECIFIED') AS level_name,
+            COUNT(DISTINCT student_id) AS c
+        FROM student_course_registrations
+        WHERE UPPER(course_code) IN ({placeholders})
+        GROUP BY
+            UPPER(course_code),
+            COALESCE(NULLIF(LTRIM(RTRIM(program_name)), ''), 'UNSPECIFIED'),
+            COALESCE(NULLIF(LTRIM(RTRIM(level_name)), ''), 'UNSPECIFIED')
+        ORDER BY UPPER(course_code) ASC, c DESC, program_name ASC, level_name ASC
+        """,
+        tuple(valid_codes),
+    )
+    out = {}
+    for row in rows:
+        code = str(row.get("course_code") or "").strip().upper()
+        if not code:
+            continue
+        out.setdefault(code, []).append(
+            {
+                "program_name": str(row.get("program_name") or "UNSPECIFIED").strip(),
+                "level_name": str(row.get("level_name") or "UNSPECIFIED").strip(),
+                "count": int(row.get("c") or 0),
+            }
+        )
+    return out
+
+
+def _fetch_period_available_invigilator_ids(period_id):
+    rows = db_utils.fetch_all(
+        """
+        SELECT eia.invigilator_id
+        FROM exam_period_invigilator_availability eia
+        INNER JOIN admins a ON a.id = eia.invigilator_id
+        WHERE eia.exam_period_id = %s
+          AND eia.is_available = TRUE
+          AND a.role = 'lecturer'
+          AND a.is_active = TRUE
+        ORDER BY eia.invigilator_id ASC
+        """,
+        (int(period_id),),
+    )
+    return [int(r.get("invigilator_id")) for r in rows if r.get("invigilator_id") is not None]
+
+
+def _fetch_busy_invigilator_ids(slot_start, slot_end, cooldown_minutes=0):
+    cooldown = max(0, int(cooldown_minutes or 0))
+    threshold_start = slot_start - timedelta(minutes=cooldown)
+    rows = db_utils.fetch_all(
+        """
+        SELECT DISTINCT si.invigilator_id
+        FROM session_invigilators si
+        INNER JOIN examination_sessions es ON es.id = si.session_id
+        WHERE si.is_active = TRUE
+          AND es.start_time < %s
+          AND es.end_time > %s
+        """,
+        (slot_end, threshold_start),
+    )
+    return {int(r.get("invigilator_id")) for r in rows if r.get("invigilator_id") is not None}
+
+
+def _get_exam_period_tracking_data(period_id):
+    period = db_utils.fetch_one(
+        """
+        SELECT id, period_name, period_type, start_date, end_date, is_active
+        FROM exam_periods
+        WHERE id = %s
+        LIMIT 1
+        """,
+        (int(period_id),),
+    )
+    if not period:
+        return None
+
+    start_date = period.get("start_date")
+    end_date = period.get("end_date")
+    if not start_date or not end_date:
+        return {"period": period, "summary": {}, "recent_logs": [], "sessions": []}
+
+    verification_total = db_utils.fetch_one(
+        """
+        SELECT COUNT(*) AS c
+        FROM verification_logs
+        WHERE CAST(timestamp AS DATE) BETWEEN %s AND %s
+        """,
+        (start_date, end_date),
+    )
+    verification_success = db_utils.fetch_one(
+        """
+        SELECT COUNT(*) AS c
+        FROM verification_logs
+        WHERE CAST(timestamp AS DATE) BETWEEN %s AND %s
+          AND outcome = 'SUCCESS'
+        """,
+        (start_date, end_date),
+    )
+    verification_fail = db_utils.fetch_one(
+        """
+        SELECT COUNT(*) AS c
+        FROM verification_logs
+        WHERE CAST(timestamp AS DATE) BETWEEN %s AND %s
+          AND outcome <> 'SUCCESS'
+        """,
+        (start_date, end_date),
+    )
+    session_total = db_utils.fetch_one(
+        """
+        SELECT COUNT(*) AS c
+        FROM examination_sessions
+        WHERE CAST(start_time AS DATE) BETWEEN %s AND %s
+        """,
+        (start_date, end_date),
+    )
+    exam_attendance_total = db_utils.fetch_one(
+        """
+        SELECT COUNT(*) AS c
+        FROM attendances
+        WHERE CAST(timestamp AS DATE) BETWEEN %s AND %s
+        """,
+        (start_date, end_date),
+    )
+    class_attendance_total = db_utils.fetch_one(
+        """
+        SELECT COUNT(*) AS c
+        FROM class_attendances
+        WHERE attendance_date BETWEEN %s AND %s
+        """,
+        (start_date, end_date),
+    )
+
+    recent_rows = db_utils.fetch_all(
+        """
+        SELECT
+            vl.timestamp,
+            vl.outcome,
+            vl.confidence,
+            vl.reason,
+            COALESCE(es.course_code, es.session_name, 'N/A') AS session_label,
+            s.student_id AS index_no,
+            s.first_name,
+            s.last_name
+        FROM verification_logs vl
+        LEFT JOIN examination_sessions es ON es.id = vl.session_id
+        LEFT JOIN students s ON s.id = vl.student_id
+        WHERE CAST(vl.timestamp AS DATE) BETWEEN %s AND %s
+        ORDER BY vl.timestamp DESC
+        LIMIT 100
+        """,
+        (start_date, end_date),
+    )
+    period_sessions = db_utils.fetch_all(
+        """
+        SELECT id, session_name, course_code, venue, start_time, end_time, is_active
+        FROM examination_sessions
+        WHERE CAST(start_time AS DATE) BETWEEN %s AND %s
+        ORDER BY start_time ASC
+        """,
+        (start_date, end_date),
+    )
+
+    detailed_runs = []
+    session_ids = [int(s.get("id")) for s in period_sessions if s.get("id") is not None]
+    if session_ids:
+        placeholders = ", ".join(["%s"] * len(session_ids))
+        invigilator_rows = db_utils.fetch_all(
+            f"""
+            SELECT
+                si.session_id,
+                a.id AS invigilator_id,
+                a.full_name,
+                a.email,
+                a.username
+            FROM session_invigilators si
+            INNER JOIN admins a ON a.id = si.invigilator_id
+            WHERE si.is_active = TRUE
+              AND si.session_id IN ({placeholders})
+            ORDER BY si.session_id ASC, a.full_name ASC
+            """,
+            tuple(session_ids),
+        )
+        student_rows = db_utils.fetch_all(
+            f"""
+            SELECT
+                atd.session_id,
+                atd.timestamp,
+                atd.verification_confidence,
+                s.id AS student_db_id,
+                s.student_id,
+                s.first_name,
+                s.last_name
+            FROM attendances atd
+            INNER JOIN students s ON s.id = atd.student_id
+            WHERE atd.session_id IN ({placeholders})
+            ORDER BY atd.session_id ASC, atd.timestamp ASC
+            """,
+            tuple(session_ids),
+        )
+        paper_rows = db_utils.fetch_all(
+            f"""
+            SELECT session_id, paper_code, paper_title
+            FROM exam_papers
+            WHERE session_id IN ({placeholders})
+            ORDER BY session_id ASC, paper_title ASC
+            """,
+            tuple(session_ids),
+        )
+
+        inv_by_session = {}
+        for r in invigilator_rows:
+            sid = int(r.get("session_id"))
+            inv_by_session.setdefault(sid, []).append(
+                {
+                    "id": r.get("invigilator_id"),
+                    "full_name": r.get("full_name") or r.get("username") or "Unknown Invigilator",
+                    "email": r.get("email") or "",
+                }
+            )
+
+        students_by_session = {}
+        for r in student_rows:
+            sid = int(r.get("session_id"))
+            students_by_session.setdefault(sid, []).append(
+                {
+                    "student_db_id": r.get("student_db_id"),
+                    "student_id": r.get("student_id") or "",
+                    "full_name": f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip() or "Unknown Student",
+                    "timestamp": r.get("timestamp"),
+                    "confidence": r.get("verification_confidence"),
+                }
+            )
+
+        papers_by_session = {}
+        for r in paper_rows:
+            sid = int(r.get("session_id"))
+            papers_by_session.setdefault(sid, []).append(
+                {
+                    "paper_code": r.get("paper_code") or "",
+                    "paper_title": r.get("paper_title") or "",
+                }
+            )
+
+        for s in period_sessions:
+            sid = int(s.get("id"))
+            students = students_by_session.get(sid, [])
+            invigilators = inv_by_session.get(sid, [])
+            papers = papers_by_session.get(sid, [])
+            detailed_runs.append(
+                {
+                    "session_id": sid,
+                    "session_name": s.get("session_name") or "",
+                    "course_code": s.get("course_code") or "",
+                    "venue": s.get("venue") or "",
+                    "start_time": s.get("start_time"),
+                    "end_time": s.get("end_time"),
+                    "is_active": bool(s.get("is_active")),
+                    "papers": papers,
+                    "students": students,
+                    "invigilators": invigilators,
+                    "student_count": len(students),
+                    "invigilator_count": len(invigilators),
+                }
+            )
+
+    return {
+        "period": period,
+        "summary": {
+            "sessions": int((session_total or {}).get("c") or 0),
+            "verifications_total": int((verification_total or {}).get("c") or 0),
+            "verifications_success": int((verification_success or {}).get("c") or 0),
+            "verifications_fail": int((verification_fail or {}).get("c") or 0),
+            "exam_attendance": int((exam_attendance_total or {}).get("c") or 0),
+            "class_attendance": int((class_attendance_total or {}).get("c") or 0),
+        },
+        "recent_logs": recent_rows,
+        "sessions": period_sessions,
+        "detailed_runs": detailed_runs,
+    }
+
+
 def _academic_year_program_exception_exists(academic_year_id, program_name):
     if not academic_year_id or not str(program_name or "").strip():
         return False
@@ -615,6 +1041,7 @@ def inject_template_helpers():
         "web.semester_control_page": "/admin/semester-control",
         "web.lecturer_course_assignments_page": "/admin/lecturer-courses/manage",
         "web.exam_periods_page": "/admin/exam-periods/manage",
+        "web.exam_scheduler_page": "/admin/exam-scheduler",
         "web.add_lecturer_page": "/admin/lecturers/new",
         "web.add_invigilator_page": "/admin/lecturers/new",
         "web.system_status_page": "/admin/system-status",
@@ -2192,6 +2619,820 @@ def toggle_exam_period(period_id):
     if not row:
         return jsonify({"error": "Exam period not found"}), 404
     return jsonify({"message": "Exam period updated", "period": row}), 200
+
+
+@web_bp.get("/admin/exam-periods/<int:period_id>/tracking")
+@roles_required("admin", "super_admin")
+def exam_period_tracking(period_id):
+    payload = _get_exam_period_tracking_data(period_id)
+    if not payload:
+        return jsonify({"error": "Exam period not found"}), 404
+    return jsonify(
+        {
+            "period": payload.get("period"),
+            "summary": payload.get("summary", {}),
+            "recent_logs": payload.get("recent_logs", []),
+            "sessions": payload.get("sessions", []),
+            "total_recent_logs": len(payload.get("recent_logs", [])),
+        }
+    ), 200
+
+
+@web_bp.get("/admin/exam-periods/<int:period_id>/details")
+@web_bp.get("/admin/exam-periods/<int:period_id>/details", endpoint="exam_period_detail_page")
+@roles_required("admin", "super_admin")
+def exam_period_detail_page(period_id):
+    payload = _get_exam_period_tracking_data(period_id)
+    if not payload:
+        abort(404, description="Exam period not found.")
+    return render_template(
+        "admin/exam_period_detail.html",
+        title="Exam Period Details",
+        period=payload.get("period"),
+        summary=payload.get("summary", {}),
+        recent_logs=payload.get("recent_logs", []),
+        sessions=payload.get("sessions", []),
+        detailed_runs=payload.get("detailed_runs", []),
+    )
+
+
+@web_bp.get("/admin/exam-scheduler")
+@web_bp.get("/admin/exam-scheduler", endpoint="exam_scheduler_page")
+@roles_required("admin", "super_admin")
+def exam_scheduler_page():
+    periods = db_utils.fetch_all(
+        """
+        SELECT id, period_name, period_type, start_date, end_date, is_active
+        FROM exam_periods
+        ORDER BY start_date DESC, id DESC
+        """
+    )
+    selected_period_id = request.args.get("period_id")
+    selected_period = None
+    if selected_period_id:
+        selected_period = _get_exam_period_by_id(selected_period_id)
+    if not selected_period:
+        selected_period = _get_current_open_exam_period()
+    if not selected_period and periods:
+        selected_period = periods[0]
+
+    available_invigilator_ids = []
+    if selected_period and selected_period.get("id"):
+        available_invigilator_ids = _fetch_period_available_invigilator_ids(int(selected_period["id"]))
+
+    lecturers = db_utils.fetch_all(
+        """
+        SELECT id, username, email, full_name, role, is_active
+        FROM admins
+        WHERE role = 'lecturer' AND is_active = TRUE
+        ORDER BY full_name ASC
+        """
+    )
+    halls = db_utils.fetch_all(
+        """
+        SELECT id, name, capacity, is_active
+        FROM exam_halls
+        WHERE is_active = TRUE
+        ORDER BY name ASC
+        """
+    )
+    return render_template(
+        "admin/exam_scheduler.html",
+        title="Exam Scheduler",
+        periods=periods,
+        selected_period=selected_period,
+        available_invigilator_ids=available_invigilator_ids,
+        lecturers=lecturers,
+        halls=halls,
+        courses=_build_scheduler_course_catalog(),
+    )
+
+
+@web_bp.post("/admin/exam-periods/<int:period_id>/invigilator-availability")
+@roles_required("admin", "super_admin")
+def save_exam_period_invigilator_availability(period_id):
+    period = _get_exam_period_by_id(period_id)
+    if not period:
+        return jsonify({"error": "Exam period not found"}), 404
+
+    payload = request.get_json() or {}
+    raw_ids = payload.get("invigilator_ids")
+    if not isinstance(raw_ids, list):
+        return jsonify({"error": "invigilator_ids must be a list"}), 400
+
+    inv_ids = []
+    for raw in raw_ids:
+        try:
+            inv_ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    inv_ids = sorted(set(inv_ids))
+
+    valid_ids = []
+    if inv_ids:
+        placeholders = ", ".join(["%s"] * len(inv_ids))
+        rows = db_utils.fetch_all(
+            f"""
+            SELECT id
+            FROM admins
+            WHERE role = 'lecturer'
+              AND is_active = TRUE
+              AND id IN ({placeholders})
+            """,
+            tuple(inv_ids),
+        )
+        valid_ids = sorted({int(r["id"]) for r in rows if r.get("id") is not None})
+
+    db_utils.execute(
+        "DELETE FROM exam_period_invigilator_availability WHERE exam_period_id = %s",
+        (int(period_id),),
+    )
+    admin_id = int(session.get("admin_id"))
+    for inv_id in valid_ids:
+        db_utils.execute(
+            """
+            INSERT INTO exam_period_invigilator_availability
+                (exam_period_id, invigilator_id, is_available, marked_by)
+            VALUES (%s, %s, TRUE, %s)
+            """,
+            (int(period_id), int(inv_id), admin_id),
+        )
+
+    return jsonify(
+        {
+            "message": "Invigilator availability saved",
+            "period_id": int(period_id),
+            "available_count": len(valid_ids),
+            "available_invigilator_ids": valid_ids,
+        }
+    ), 200
+
+
+@web_bp.post("/admin/exam-scheduler/generate")
+@roles_required("admin", "super_admin")
+def generate_exam_schedule():
+    payload = request.get_json() or {}
+
+    period_id = payload.get("period_id")
+    period = _get_exam_period_by_id(period_id)
+    if not period:
+        return jsonify({"error": "Valid period_id is required"}), 400
+
+    period_start = period.get("start_date")
+    period_end = period.get("end_date")
+    if not period_start or not period_end:
+        return jsonify({"error": "Selected exam period has no valid dates"}), 400
+
+    raw_weekdays = payload.get("selected_weekdays")
+    selected_weekdays = []
+    if raw_weekdays is not None:
+        if not isinstance(raw_weekdays, list):
+            return jsonify({"error": "selected_weekdays must be a list of numbers (0=Mon ... 6=Sun)"}), 400
+        for w in raw_weekdays:
+            try:
+                wi = int(w)
+            except (TypeError, ValueError):
+                return jsonify({"error": f"Invalid weekday value: {w}"}), 400
+            if wi < 0 or wi > 6:
+                return jsonify({"error": f"Weekday value out of range: {wi}. Use 0..6"}), 400
+            selected_weekdays.append(wi)
+        selected_weekdays = sorted(set(selected_weekdays))
+
+    parsed_days = []
+    if selected_weekdays:
+        parsed_days = _expand_period_days_by_weekdays(period_start, period_end, selected_weekdays)
+        if not parsed_days:
+            return jsonify(
+                {
+                    "error": (
+                        "No exam days match the selected weekdays inside this exam period. "
+                        "Adjust weekdays or period dates."
+                    )
+                }
+            ), 400
+    else:
+        raw_days = payload.get("exam_days")
+        if not isinstance(raw_days, list) or not raw_days:
+            return jsonify(
+                {
+                    "error": (
+                        "Provide either exam_days or selected_weekdays. "
+                        "exam_days must be a non-empty list."
+                    )
+                }
+            ), 400
+        for day in raw_days:
+            try:
+                parsed_days.append(_parse_iso_date(day))
+            except Exception:
+                return jsonify({"error": f"Invalid exam day: {day}. Use YYYY-MM-DD"}), 400
+        parsed_days = sorted(set(parsed_days))
+        for day in parsed_days:
+            if day < period_start or day > period_end:
+                return jsonify(
+                    {
+                        "error": (
+                            f"Exam day {day.isoformat()} is outside period "
+                            f"{period_start.isoformat()} to {period_end.isoformat()}."
+                        )
+                    }
+                ), 400
+
+    period_type = str(period.get("period_type") or "").strip().upper()
+    default_hours_by_period = 1.0 if period_type == "MIDSEM" else 2.0
+    raw_default_hours = payload.get("default_paper_duration_hours", default_hours_by_period)
+    try:
+        default_paper_duration_hours = float(raw_default_hours)
+    except (TypeError, ValueError):
+        return jsonify({"error": "default_paper_duration_hours must be numeric"}), 400
+    if default_paper_duration_hours < 0.5 or default_paper_duration_hours > 8:
+        return jsonify({"error": "default_paper_duration_hours must be between 0.5 and 8"}), 400
+
+    exam_day_start_raw = str(payload.get("exam_day_start_time") or "").strip() or "00:00"
+    exam_day_end_raw = str(payload.get("exam_day_end_time") or "").strip() or "23:59"
+    try:
+        exam_day_start_time = _parse_hhmm_time(exam_day_start_raw)
+        exam_day_end_time = _parse_hhmm_time(exam_day_end_raw)
+    except ValueError:
+        return jsonify({"error": "exam_day_start_time and exam_day_end_time must be in HH:MM format"}), 400
+    if datetime.combine(parsed_days[0], exam_day_end_time) <= datetime.combine(parsed_days[0], exam_day_start_time):
+        return jsonify({"error": "exam_day_end_time must be later than exam_day_start_time"}), 400
+
+    try:
+        paper_gap_minutes = int(payload.get("paper_gap_minutes", payload.get("break_minutes", 15)))
+    except (TypeError, ValueError):
+        return jsonify({"error": "paper_gap_minutes must be numeric"}), 400
+    if paper_gap_minutes < 0 or paper_gap_minutes > 180:
+        return jsonify({"error": "paper_gap_minutes must be between 0 and 180"}), 400
+
+    try:
+        invigilator_cooldown_minutes = int(
+            payload.get("invigilator_cooldown_minutes", payload.get("invigilator_break_minutes", 0))
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "invigilator_cooldown_minutes must be numeric"}), 400
+    if invigilator_cooldown_minutes < 0 or invigilator_cooldown_minutes > 240:
+        return jsonify({"error": "invigilator_cooldown_minutes must be between 0 and 240"}), 400
+
+    try:
+        fallback_invigilators_per_hall = int(payload.get("invigilators_per_hall", 1))
+    except (TypeError, ValueError):
+        return jsonify({"error": "invigilators_per_hall must be numeric"}), 400
+    if fallback_invigilators_per_hall < 1 or fallback_invigilators_per_hall > 8:
+        return jsonify({"error": "invigilators_per_hall must be between 1 and 8"}), 400
+
+    shared_paper_hall_mode = str(payload.get("shared_paper_hall_mode") or "same_halls").strip().lower()
+    if shared_paper_hall_mode not in {"same_halls", "separate_halls"}:
+        return jsonify({"error": "shared_paper_hall_mode must be same_halls or separate_halls"}), 400
+
+    hall_required_map = {}
+    raw_hall_configs = payload.get("hall_configs")
+    if isinstance(raw_hall_configs, list) and raw_hall_configs:
+        for cfg in raw_hall_configs:
+            if not isinstance(cfg, dict):
+                continue
+            try:
+                hall_id = int(cfg.get("hall_id"))
+                inv_required = int(cfg.get("invigilators_required"))
+            except (TypeError, ValueError):
+                continue
+            if inv_required < 1 or inv_required > 8:
+                return jsonify({"error": "Each hall invigilators_required must be between 1 and 8"}), 400
+            hall_required_map[hall_id] = inv_required
+    if hall_required_map:
+        hall_ids = sorted(hall_required_map.keys())
+    else:
+        raw_hall_ids = payload.get("hall_ids")
+        if not isinstance(raw_hall_ids, list) or not raw_hall_ids:
+            return jsonify({"error": "hall_ids is required and must be a non-empty list"}), 400
+        hall_ids = []
+        for raw in raw_hall_ids:
+            try:
+                hall_ids.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+        hall_ids = sorted(set(hall_ids))
+        for hid in hall_ids:
+            hall_required_map[hid] = fallback_invigilators_per_hall
+
+    if not hall_ids:
+        return jsonify({"error": "No valid hall ids provided"}), 400
+    hall_placeholders = ", ".join(["%s"] * len(hall_ids))
+    hall_rows = db_utils.fetch_all(
+        f"""
+        SELECT id, name, capacity, is_active
+        FROM exam_halls
+        WHERE is_active = TRUE
+          AND id IN ({hall_placeholders})
+        ORDER BY id ASC
+        """,
+        tuple(hall_ids),
+    )
+    halls = []
+    for h in hall_rows:
+        try:
+            halls.append(
+                {
+                    "id": int(h.get("id")),
+                    "name": str(h.get("name") or "").strip(),
+                    "capacity": int(h.get("capacity") or 0),
+                }
+            )
+        except (TypeError, ValueError):
+            continue
+    if len(halls) != len(hall_ids):
+        return jsonify({"error": "One or more selected halls are invalid or inactive"}), 400
+    if any(int(h["capacity"]) <= 0 for h in halls):
+        return jsonify({"error": "All selected halls must have capacity greater than zero"}), 400
+
+    raw_courses = payload.get("courses")
+    if not isinstance(raw_courses, list) or not raw_courses:
+        return jsonify({"error": "courses is required and must be a non-empty list"}), 400
+    normalized_courses = []
+    for item in raw_courses:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("course_code") or "").strip().upper()
+        if not code:
+            continue
+        duration_minutes = None
+        if item.get("duration_hours") is not None:
+            try:
+                duration_hours = float(item.get("duration_hours"))
+            except (TypeError, ValueError):
+                return jsonify({"error": f"duration_hours must be numeric for course {code}"}), 400
+            if duration_hours < 0.5 or duration_hours > 8:
+                return jsonify({"error": f"duration_hours for {code} must be between 0.5 and 8"}), 400
+            duration_minutes = int(round(duration_hours * 60))
+        elif item.get("duration_minutes") is not None:
+            try:
+                duration_minutes = int(item.get("duration_minutes"))
+            except (TypeError, ValueError):
+                return jsonify({"error": f"duration_minutes must be numeric for course {code}"}), 400
+        else:
+            duration_minutes = int(round(default_paper_duration_hours * 60))
+
+        if duration_minutes < 30 or duration_minutes > 480:
+            return jsonify({"error": f"duration for {code} must be between 30 and 480 minutes"}), 400
+
+        normalized_courses.append(
+            {
+                "course_code": code,
+                "duration_minutes": duration_minutes,
+                "duration_hours": round(float(duration_minutes) / 60.0, 2),
+                "session_period": "day",
+            }
+        )
+    if not normalized_courses:
+        return jsonify({"error": "No valid courses were provided"}), 400
+
+    deduped_by_code = {}
+    for c in normalized_courses:
+        deduped_by_code[c["course_code"]] = c
+    normalized_courses = list(deduped_by_code.values())
+
+    course_meta = _fetch_scheduler_course_details([c["course_code"] for c in normalized_courses])
+    missing = [c["course_code"] for c in normalized_courses if c["course_code"] not in course_meta]
+    if missing:
+        return jsonify({"error": f"Invalid or inactive courses: {', '.join(sorted(missing))}"}), 400
+
+    course_counts = _fetch_course_registration_counts([c["course_code"] for c in normalized_courses])
+    course_breakdown = _fetch_course_registration_breakdown([c["course_code"] for c in normalized_courses])
+
+    availability_ids = _fetch_period_available_invigilator_ids(int(period["id"]))
+    if not availability_ids:
+        return jsonify(
+            {
+                "error": (
+                    "No available invigilators are marked for this exam period. "
+                    "Mark availability first before generating schedule."
+                )
+            }
+        ), 400
+
+    slots = []
+    daily_window_minutes = int(
+        (datetime.combine(parsed_days[0], exam_day_end_time) - datetime.combine(parsed_days[0], exam_day_start_time))
+        .total_seconds()
+        / 60
+    )
+    for c in normalized_courses:
+        if int(c["duration_minutes"]) > daily_window_minutes:
+            return jsonify(
+                {
+                    "error": (
+                        f"{c['course_code']} duration ({c['duration_minutes']} mins) exceeds daily window "
+                        f"({daily_window_minutes} mins). Increase exam day window or reduce duration."
+                    )
+                }
+            ), 409
+
+    course_cursor = 0
+    total_courses = len(normalized_courses)
+    for exam_day in parsed_days:
+        if course_cursor >= total_courses:
+            break
+        day_window_start = datetime.combine(exam_day, exam_day_start_time)
+        day_window_end = datetime.combine(exam_day, exam_day_end_time)
+        current_start = day_window_start
+
+        while course_cursor < total_courses:
+            c = normalized_courses[course_cursor]
+            code = c["course_code"]
+            slot_start = current_start
+            slot_end = slot_start + timedelta(minutes=int(c["duration_minutes"]))
+            if slot_end > day_window_end:
+                # Move this paper to the next available exam day.
+                break
+
+            slots.append(
+                {
+                    "exam_day": exam_day,
+                    "session_period": "day",
+                    "course_code": code,
+                    "course_title": course_meta.get(code, {}).get("course_title") or code,
+                    "duration_minutes": int(c["duration_minutes"]),
+                    "duration_hours": c["duration_hours"],
+                    "start_time": slot_start,
+                    "end_time": slot_end,
+                    "paper_group_code": _default_paper_group_code(code, slot_start, "day"),
+                }
+            )
+            course_cursor += 1
+            current_start = slot_end + timedelta(minutes=paper_gap_minutes)
+
+    if course_cursor < total_courses:
+        remaining_codes = [c["course_code"] for c in normalized_courses[course_cursor:]]
+        return jsonify(
+            {
+                "error": (
+                    "Insufficient exam days/time window to schedule all papers. "
+                    f"Unscheduled papers: {', '.join(remaining_codes)}. "
+                    "Add more exam days, reduce paper durations, reduce gaps, or extend day end time."
+                )
+            }
+        ), 409
+
+    course_slot_counts = {}
+    for slot in slots:
+        code = slot["course_code"]
+        course_slot_counts[code] = int(course_slot_counts.get(code, 0)) + 1
+
+    def _distribute_students_across_halls(total_students, assigned_halls):
+        if not assigned_halls:
+            return {}, int(total_students or 0)
+        if total_students <= 0:
+            return {int(h["id"]): 0 for h in assigned_halls}, 0
+
+        # Allocate by hall capacity so large candidate pools are spread across
+        # all selected halls up to each hall's seat limit.
+        out = {int(h["id"]): 0 for h in assigned_halls}
+        remaining = int(total_students)
+        for hall in sorted(assigned_halls, key=lambda h: int(h["capacity"]), reverse=True):
+            if remaining <= 0:
+                break
+            cap = int(hall["capacity"])
+            assigned = min(cap, remaining)
+            out[int(hall["id"])] = max(0, int(assigned))
+            remaining -= int(assigned)
+        return out, remaining
+
+    total_selected_capacity = sum(int(h["capacity"]) for h in halls)
+    slot_hall_plans = []
+    for slot in slots:
+        code = slot["course_code"]
+        course_total = int(course_counts.get(code) or 0)
+        course_occurrences = max(1, int(course_slot_counts.get(code, 1)))
+        slot_total_target = math.ceil(course_total / course_occurrences) if course_total > 0 else 0
+
+        # default mode: same paper in same hall pool (current behavior)
+        if shared_paper_hall_mode == "same_halls":
+            expected_map, remaining = _distribute_students_across_halls(slot_total_target, halls)
+            if remaining > 0:
+                return jsonify(
+                    {
+                        "error": (
+                            f"Hall capacity is insufficient for {code}. "
+                            f"Needed at least {slot_total_target} seats, available {total_selected_capacity}."
+                        )
+                    }
+                ), 409
+            plan_entries = []
+            for hall in halls:
+                plan_entries.append(
+                    {
+                        "hall": hall,
+                        "group_label": "",
+                        "group_suffix": "",
+                        "expected_students": int(expected_map.get(int(hall["id"]), 0)),
+                    }
+                )
+            slot_hall_plans.append({"slot": slot, "entries": plan_entries})
+            continue
+
+        # separate_halls mode: split shared paper by program/level if multiple groups exist
+        groups = [g for g in course_breakdown.get(code, []) if int(g.get("count") or 0) > 0]
+        if len(groups) <= 1:
+            expected_map, remaining = _distribute_students_across_halls(slot_total_target, halls)
+            if remaining > 0:
+                return jsonify(
+                    {
+                        "error": (
+                            f"Hall capacity is insufficient for {code}. "
+                            f"Needed at least {slot_total_target} seats, available {total_selected_capacity}."
+                        )
+                    }
+                ), 409
+            plan_entries = []
+            for hall in halls:
+                plan_entries.append(
+                    {
+                        "hall": hall,
+                        "group_label": "",
+                        "group_suffix": "",
+                        "expected_students": int(expected_map.get(int(hall["id"]), 0)),
+                    }
+                )
+            slot_hall_plans.append({"slot": slot, "entries": plan_entries})
+            continue
+
+        group_targets = []
+        for g in groups:
+            group_total = int(g["count"])
+            group_slot_target = math.ceil(group_total / course_occurrences) if group_total > 0 else 0
+            group_label = f"{g['program_name']} - {g['level_name']}"
+            group_suffix = _normalize_paper_group_code(f"{g['program_name']}-{g['level_name']}")
+            group_targets.append(
+                {
+                    "label": group_label,
+                    "suffix": group_suffix or "GROUP",
+                    "target": group_slot_target,
+                }
+            )
+        group_targets = [g for g in group_targets if int(g["target"]) > 0]
+        if not group_targets:
+            expected_map, _remaining = _distribute_students_across_halls(slot_total_target, halls)
+            slot_hall_plans.append(
+                {
+                    "slot": slot,
+                    "entries": [
+                        {
+                            "hall": hall,
+                            "group_label": "",
+                            "group_suffix": "",
+                            "expected_students": int(expected_map.get(int(hall["id"]), 0)),
+                        }
+                        for hall in halls
+                    ],
+                }
+            )
+            continue
+
+        if len(group_targets) > len(halls):
+            return jsonify(
+                {
+                    "error": (
+                        f"{code} has {len(group_targets)} programme/level groups but only {len(halls)} halls selected. "
+                        "Select more halls or use same_halls mode."
+                    )
+                }
+            ), 409
+
+        remaining_halls = sorted(halls, key=lambda h: int(h["capacity"]), reverse=True)
+        group_to_halls = {}
+        group_targets_sorted = sorted(group_targets, key=lambda g: int(g["target"]), reverse=True)
+        for group in group_targets_sorted:
+            assigned = []
+            covered = 0
+            while remaining_halls and (covered < int(group["target"]) or not assigned):
+                hall = remaining_halls.pop(0)
+                assigned.append(hall)
+                covered += int(hall["capacity"])
+            if not assigned or covered < int(group["target"]):
+                return jsonify(
+                    {
+                        "error": (
+                            f"Insufficient hall capacity to keep {code} groups separate "
+                            f"for '{group['label']}'. Select more/larger halls or use same_halls mode."
+                        )
+                    }
+                ), 409
+            group_to_halls[group["label"]] = (group, assigned)
+
+        # Any leftover halls are attached to the biggest group.
+        if remaining_halls and group_targets_sorted:
+            primary_label = group_targets_sorted[0]["label"]
+            primary_group, primary_halls = group_to_halls[primary_label]
+            primary_halls.extend(remaining_halls)
+            group_to_halls[primary_label] = (primary_group, primary_halls)
+
+        plan_entries = []
+        for label in [g["label"] for g in group_targets_sorted]:
+            group, assigned_halls = group_to_halls[label]
+            expected_map, remaining = _distribute_students_across_halls(int(group["target"]), assigned_halls)
+            if remaining > 0:
+                return jsonify(
+                    {
+                        "error": (
+                            f"Insufficient hall capacity for {code} group '{label}'. "
+                            "Select more halls or reduce expected load."
+                        )
+                    }
+                ), 409
+            for hall in assigned_halls:
+                plan_entries.append(
+                    {
+                        "hall": hall,
+                        "group_label": label,
+                        "group_suffix": group["suffix"],
+                        "expected_students": int(expected_map.get(int(hall["id"]), 0)),
+                    }
+                )
+        slot_hall_plans.append({"slot": slot, "entries": plan_entries})
+
+    for plan in slot_hall_plans:
+        slot = plan["slot"]
+        plan_halls = [
+            entry["hall"]
+            for entry in plan["entries"]
+            if int(entry.get("expected_students") or 0) > 0
+        ]
+        if not plan_halls:
+            continue
+        for hall in plan_halls:
+            overlap = db_utils.fetch_one(
+                """
+                SELECT id, session_name
+                FROM examination_sessions
+                WHERE hall_id = %s
+                  AND start_time < %s
+                  AND end_time > %s
+                ORDER BY start_time ASC
+                LIMIT 1
+                """,
+                (int(hall["id"]), slot["end_time"], slot["start_time"]),
+            )
+            if overlap:
+                return jsonify(
+                    {
+                        "error": (
+                            f"Hall conflict on {slot['exam_day'].isoformat()} for {hall['name']}: "
+                            f"{overlap.get('session_name')} already overlaps this slot."
+                        )
+                    }
+                ), 409
+
+    for plan in slot_hall_plans:
+        slot = plan["slot"]
+        plan_halls = [
+            entry["hall"]
+            for entry in plan["entries"]
+            if int(entry.get("expected_students") or 0) > 0
+        ]
+        if not plan_halls:
+            continue
+        required_per_slot = sum(int(hall_required_map.get(int(h["id"]), 1)) for h in plan_halls)
+        busy_ids = _fetch_busy_invigilator_ids(
+            slot["start_time"],
+            slot["end_time"],
+            cooldown_minutes=invigilator_cooldown_minutes,
+        )
+        free_ids = [inv_id for inv_id in availability_ids if inv_id not in busy_ids]
+        if len(free_ids) < required_per_slot:
+            return jsonify(
+                {
+                    "error": (
+                        f"Warning: insufficient available invigilators for {slot['course_code']} on "
+                        f"{slot['exam_day'].isoformat()} ({slot['start_time'].strftime('%H:%M')}). "
+                        f"Required: {required_per_slot}, available: {len(free_ids)}. "
+                        f"Current invigilator cooldown: {invigilator_cooldown_minutes} minute(s)."
+                    )
+                }
+            ), 409
+
+    allow_file_upload = bool(payload.get("allow_file_upload", False))
+    admin_id = int(session.get("admin_id"))
+    created_sessions = []
+    randomizer = random.SystemRandom()
+
+    for plan in slot_hall_plans:
+        slot = plan["slot"]
+        plan_entries = [
+            entry for entry in plan["entries"] if int(entry.get("expected_students") or 0) > 0
+        ]
+        if not plan_entries:
+            continue
+        plan_halls = [entry["hall"] for entry in plan_entries]
+        busy_ids = _fetch_busy_invigilator_ids(
+            slot["start_time"],
+            slot["end_time"],
+            cooldown_minutes=invigilator_cooldown_minutes,
+        )
+        free_ids = [inv_id for inv_id in availability_ids if inv_id not in busy_ids]
+        randomizer.shuffle(free_ids)
+
+        assignment_map = {}
+        cursor = 0
+        for hall in plan_halls:
+            required_for_hall = int(hall_required_map.get(int(hall["id"]), 1))
+            assigned = free_ids[cursor:cursor + required_for_hall]
+            assignment_map[int(hall["id"])] = assigned
+            cursor += required_for_hall
+
+        for entry in plan_entries:
+            hall = entry["hall"]
+            hall_expected = max(1, min(int(entry["expected_students"]), int(hall["capacity"])))
+            if int(entry["expected_students"]) <= 0:
+                continue
+            session_name = slot["course_title"]
+            if entry["group_label"]:
+                session_name = f"{slot['course_title']} ({entry['group_label']})"
+            paper_group_code = slot["paper_group_code"]
+            if entry["group_suffix"]:
+                paper_group_code = f"{paper_group_code}-{entry['group_suffix']}"
+
+            created = db_utils.execute_returning(
+                """
+                INSERT INTO examination_sessions
+                    (session_name, course_code, paper_group_code, venue, hall_id, expected_students, start_time, end_time, created_by, is_active, allow_file_upload)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s)
+                RETURNING id, session_name, course_code, paper_group_code, venue, hall_id, expected_students, start_time, end_time, is_active
+                """,
+                (
+                    session_name,
+                    slot["course_code"],
+                    paper_group_code,
+                    hall["name"],
+                    int(hall["id"]),
+                    int(hall_expected),
+                    slot["start_time"],
+                    slot["end_time"],
+                    admin_id,
+                    allow_file_upload,
+                ),
+            )
+            session_id = int(created.get("id"))
+            db_utils.execute(
+                """
+                INSERT INTO exam_papers (session_id, paper_code, paper_title)
+                VALUES (%s, %s, %s)
+                """,
+                (session_id, slot["course_code"], slot["course_title"]),
+            )
+
+            for inv_id in assignment_map.get(int(hall["id"]), []):
+                db_utils.execute(
+                    """
+                    INSERT INTO session_invigilators (session_id, invigilator_id, assigned_by, is_active)
+                    VALUES (%s, %s, %s, TRUE)
+                    ON CONFLICT (session_id, invigilator_id)
+                    DO UPDATE SET is_active = TRUE, assigned_by = EXCLUDED.assigned_by
+                    """,
+                    (session_id, int(inv_id), admin_id),
+                )
+
+            created_sessions.append(
+                {
+                    "session_id": session_id,
+                    "course_code": slot["course_code"],
+                    "course_title": slot["course_title"],
+                    "session_period": slot["session_period"],
+                    "duration_minutes": slot["duration_minutes"],
+                    "duration_hours": slot["duration_hours"],
+                    "exam_day": slot["exam_day"].isoformat(),
+                    "start_time": slot["start_time"].isoformat(),
+                    "end_time": slot["end_time"].isoformat(),
+                    "hall_id": int(hall["id"]),
+                    "hall_name": hall["name"],
+                    "paper_group_code": paper_group_code,
+                    "group_label": entry["group_label"] or None,
+                    "required_invigilators": int(hall_required_map.get(int(hall["id"]), 1)),
+                    "assigned_invigilator_ids": assignment_map.get(int(hall["id"]), []),
+                }
+            )
+
+    return jsonify(
+        {
+            "message": "Exam schedule generated successfully",
+            "period_id": int(period["id"]),
+            "period_name": period.get("period_name"),
+            "session_count": len(created_sessions),
+            "slots_count": len(slots),
+            "exam_days_count": len(parsed_days),
+            "exam_days_used": [d.isoformat() for d in parsed_days],
+            "selected_weekdays": selected_weekdays,
+            "exam_day_start_time": exam_day_start_raw,
+            "exam_day_end_time": exam_day_end_raw,
+            "default_paper_duration_hours": default_paper_duration_hours,
+            "paper_gap_minutes": paper_gap_minutes,
+            "invigilator_cooldown_minutes": invigilator_cooldown_minutes,
+            "shared_paper_hall_mode": shared_paper_hall_mode,
+            # Backward-compatible response keys
+            "break_minutes": paper_gap_minutes,
+            "invigilator_break_minutes": invigilator_cooldown_minutes,
+            "sessions": created_sessions,
+        }
+    ), 201
 
 
 @web_bp.get("/admin/audit/login-logs")

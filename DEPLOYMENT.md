@@ -48,6 +48,9 @@ Render note (ArcFace model):
 - Set:
   - `EMBEDDING_MODEL_PATH=models/arcface_r100.onnx`
   - `EMBEDDING_MODEL_URL=<public direct download URL to arcface_r100.onnx>`
+- If Render keeps failing with `libGLESv2.so.2` during biometric verification, set:
+  - `DISABLE_MEDIAPIPE=true`
+  - This forces OpenCV fallback detection and avoids MediaPipe GLES runtime dependencies.
 - On startup, if the file is not present in `models/`, it will be downloaded automatically.
 
 ### 5. Initialize Database

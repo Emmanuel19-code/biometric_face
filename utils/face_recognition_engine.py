@@ -18,8 +18,14 @@ from PIL import Image
 
 import onnxruntime as ort
 
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
+try:
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python import vision as mp_vision
+    _MEDIAPIPE_IMPORT_ERROR = None
+except Exception as _mp_exc:
+    mp_python = None
+    mp_vision = None
+    _MEDIAPIPE_IMPORT_ERROR = _mp_exc
 
 from config import Config
 
@@ -44,6 +50,10 @@ class FaceRecognitionEngine:
         self.arcface_model_url = env_model_url or env_model_url_legacy or config_model_url
         os.makedirs(os.path.dirname(self.arcface_model_path) or ".", exist_ok=True)
 
+        # OpenCV Haar fallback detector (used when MediaPipe is unavailable on host).
+        self._haar_detector = None
+        self._init_haar_detector()
+
         # MediaPipe task models (we auto-download)
         self._assets_dir = os.path.join(os.path.dirname(__file__), "..", "models", "mediapipe_assets")
         os.makedirs(self._assets_dir, exist_ok=True)
@@ -61,24 +71,10 @@ class FaceRecognitionEngine:
             "face_landmarker/float16/latest/face_landmarker.task"
         )
 
-        # Download if missing
-        self._download_if_missing(self.face_detector_model_path, self.face_detector_model_url)
-        self._download_if_missing(self.face_landmarker_model_path, self.face_landmarker_model_url)
-
-        # ---- MediaPipe Tasks: Face Detector ----
-        det_base = python.BaseOptions(model_asset_path=self.face_detector_model_path)
-        det_opts = vision.FaceDetectorOptions(base_options=det_base)
-        self._face_detector = vision.FaceDetector.create_from_options(det_opts)
-
-        # ---- MediaPipe Tasks: Face Landmarker ----
-        lm_base = python.BaseOptions(model_asset_path=self.face_landmarker_model_path)
-        lm_opts = vision.FaceLandmarkerOptions(
-            base_options=lm_base,
-            output_face_blendshapes=False,
-            output_facial_transformation_matrixes=False,
-            num_faces=1,
-        )
-        self._face_landmarker = vision.FaceLandmarker.create_from_options(lm_opts)
+        self._face_detector = None
+        self._face_landmarker = None
+        self._mediapipe_ready = False
+        self._init_mediapipe_tasks()
 
         # ---- ArcFace ONNX runtime ----
         if not os.path.exists(self.arcface_model_path):
@@ -118,6 +114,49 @@ class FaceRecognitionEngine:
     # -----------------------------
     # Helpers
     # -----------------------------
+    def _init_haar_detector(self):
+        try:
+            cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+            detector = cv2.CascadeClassifier(cascade_path)
+            if detector.empty():
+                logger.warning("OpenCV Haar cascade failed to initialize from %s", cascade_path)
+                return
+            self._haar_detector = detector
+        except Exception as exc:
+            logger.warning("OpenCV Haar cascade initialization failed: %s", exc)
+
+    def _init_mediapipe_tasks(self):
+        if str(os.getenv("DISABLE_MEDIAPIPE", "")).strip().lower() in {"1", "true", "yes"}:
+            logger.info("MediaPipe disabled via DISABLE_MEDIAPIPE")
+            return
+
+        if _MEDIAPIPE_IMPORT_ERROR is not None or mp_python is None or mp_vision is None:
+            logger.warning("MediaPipe import unavailable, using OpenCV fallback: %s", _MEDIAPIPE_IMPORT_ERROR)
+            return
+
+        try:
+            # Download task assets only when MediaPipe is enabled.
+            self._download_if_missing(self.face_detector_model_path, self.face_detector_model_url)
+            self._download_if_missing(self.face_landmarker_model_path, self.face_landmarker_model_url)
+
+            det_base = mp_python.BaseOptions(model_asset_path=self.face_detector_model_path)
+            det_opts = mp_vision.FaceDetectorOptions(base_options=det_base)
+            self._face_detector = mp_vision.FaceDetector.create_from_options(det_opts)
+
+            lm_base = mp_python.BaseOptions(model_asset_path=self.face_landmarker_model_path)
+            lm_opts = mp_vision.FaceLandmarkerOptions(
+                base_options=lm_base,
+                output_face_blendshapes=False,
+                output_facial_transformation_matrixes=False,
+                num_faces=1,
+            )
+            self._face_landmarker = mp_vision.FaceLandmarker.create_from_options(lm_opts)
+            self._mediapipe_ready = True
+            logger.info("MediaPipe tasks initialized")
+        except Exception as exc:
+            logger.warning("MediaPipe initialization failed, using OpenCV fallback: %s", exc)
+            self._mediapipe_ready = False
+
     def _download_if_missing(self, path: str, url: str):
         if os.path.exists(path):
             return
@@ -161,39 +200,73 @@ class FaceRecognitionEngine:
     def _cosine_distance(self, a: np.ndarray, b: np.ndarray) -> float:
         return float(1.0 - np.dot(a, b))
 
+    def _detect_bbox_haar(self, rgb: np.ndarray) -> Optional[Tuple[int, int, int, int, float]]:
+        if self._haar_detector is None:
+            return None
+
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        faces = self._haar_detector.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(60, 60),
+        )
+        if len(faces) == 0:
+            return None
+
+        x, y, w, h = max(faces, key=lambda f: int(f[2]) * int(f[3]))
+        x1, y1, x2, y2 = int(x), int(y), int(x + w), int(y + h)
+
+        pad = int(0.12 * max(w, h))
+        ih, iw = rgb.shape[:2]
+        x1 = max(0, x1 - pad)
+        y1 = max(0, y1 - pad)
+        x2 = min(iw, x2 + pad)
+        y2 = min(ih, y2 + pad)
+
+        if x2 - x1 < 40 or y2 - y1 < 40:
+            return None
+        return x1, y1, x2, y2, 1.0
+
     def _detect_bbox_xyxy(self, rgb: np.ndarray) -> Optional[Tuple[int, int, int, int, float]]:
         """
         Uses MediaPipe FaceDetector task.
         Returns (x1,y1,x2,y2,score) in pixels.
         """
-        from mediapipe import Image as mp_Image
-        from mediapipe import ImageFormat as mp_ImageFormat
+        if self._mediapipe_ready and self._face_detector is not None:
+            try:
+                from mediapipe import Image as mp_Image
+                from mediapipe import ImageFormat as mp_ImageFormat
 
-        h, w = rgb.shape[:2]
-        mp_img = mp_Image(image_format=mp_ImageFormat.SRGB, data=rgb)
-        res = self._face_detector.detect(mp_img)
-        if not res.detections:
-            return None
+                h, w = rgb.shape[:2]
+                mp_img = mp_Image(image_format=mp_ImageFormat.SRGB, data=rgb)
+                res = self._face_detector.detect(mp_img)
+                if not res.detections:
+                    return self._detect_bbox_haar(rgb)
 
-        det = res.detections[0]
-        score = float(det.categories[0].score) if det.categories else 0.0
-        bb = det.bounding_box  # origin_x, origin_y, width, height (pixels)
-        x1 = max(0, int(bb.origin_x))
-        y1 = max(0, int(bb.origin_y))
-        x2 = min(w, int(bb.origin_x + bb.width))
-        y2 = min(h, int(bb.origin_y + bb.height))
+                det = res.detections[0]
+                score = float(det.categories[0].score) if det.categories else 0.0
+                bb = det.bounding_box  # origin_x, origin_y, width, height (pixels)
+                x1 = max(0, int(bb.origin_x))
+                y1 = max(0, int(bb.origin_y))
+                x2 = min(w, int(bb.origin_x + bb.width))
+                y2 = min(h, int(bb.origin_y + bb.height))
 
-        # light padding
-        pad = int(0.12 * max(x2 - x1, y2 - y1))
-        x1 = max(0, x1 - pad)
-        y1 = max(0, y1 - pad)
-        x2 = min(w, x2 + pad)
-        y2 = min(h, y2 + pad)
+                # light padding
+                pad = int(0.12 * max(x2 - x1, y2 - y1))
+                x1 = max(0, x1 - pad)
+                y1 = max(0, y1 - pad)
+                x2 = min(w, x2 + pad)
+                y2 = min(h, y2 + pad)
 
-        if x2 - x1 < 40 or y2 - y1 < 40:
-            return None
+                if x2 - x1 < 40 or y2 - y1 < 40:
+                    return self._detect_bbox_haar(rgb)
 
-        return x1, y1, x2, y2, score
+                return x1, y1, x2, y2, score
+            except Exception as exc:
+                logger.warning("MediaPipe detect failed; falling back to OpenCV Haar: %s", exc)
+
+        return self._detect_bbox_haar(rgb)
 
     def _crop_face(self, rgb: np.ndarray, bbox: Tuple[int, int, int, int]) -> np.ndarray:
         x1, y1, x2, y2 = bbox
@@ -201,6 +274,9 @@ class FaceRecognitionEngine:
 
     def _landmarks_px(self, rgb: np.ndarray) -> Optional[np.ndarray]:
         """Returns (468,2) pixel landmarks or None."""
+        if not self._mediapipe_ready or self._face_landmarker is None:
+            return None
+
         from mediapipe import Image as mp_Image
         from mediapipe import ImageFormat as mp_ImageFormat
 
@@ -316,6 +392,10 @@ class FaceRecognitionEngine:
         - turn_right
         """
         try:
+            if not self._mediapipe_ready:
+                logger.warning("Skipping liveness check because MediaPipe is unavailable")
+                return True, "Liveness check skipped (MediaPipe unavailable)"
+
             if not frames or len(frames) < 3:
                 return False, "Not enough frames"
 

@@ -1,11 +1,46 @@
 {% extends "layout.html" %}
 {% set title = "Register Student" %}
 {% block content %}
+<style>
+  .face-guide-wrap {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: grid;
+    place-items: center;
+  }
+  .face-guide-oval {
+    width: min(64%, 180px);
+    aspect-ratio: 3 / 4;
+    border-radius: 9999px;
+    border: 2px dashed rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.15);
+  }
+  .face-guide-text {
+    position: absolute;
+    bottom: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: #fff;
+    background: rgba(15, 23, 42, 0.45);
+    border-radius: 9999px;
+    padding: 3px 8px;
+    white-space: nowrap;
+  }
+  @media (max-width: 640px) {
+    .face-guide-text {
+      font-size: 9px;
+      bottom: 5px;
+      padding: 2px 7px;
+    }
+  }
+</style>
 
 <div class="grid lg:grid-cols-3 gap-4">
 
   <!-- LEFT: Student Details -->
-  <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+  <div class="mobile-panel lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
     <div class="flex items-start justify-between gap-3">
       <div>
         <div class="text-sm font-semibold">Student Details</div>
@@ -26,7 +61,7 @@
         <label class="text-sm font-medium">First Name <span class="text-rose-600">*</span></label>
         <input id="firstName" name="first_name" required
                class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
-               placeholder="e.g. Emmanuel">
+               placeholder="**********">
         <p class="mt-1 text-xs text-rose-600 hidden" id="errFirstName">First name is required.</p>
       </div>
 
@@ -35,7 +70,7 @@
         <label class="text-sm font-medium">Middle Name</label>
         <input id="middleName" name="middle_name"
                class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
-               placeholder="e.g. Kofi">
+               placeholder="********">
       </div>
 
       <!-- Last name -->
@@ -43,7 +78,7 @@
         <label class="text-sm font-medium">Last Name <span class="text-rose-600">*</span></label>
         <input id="lastName" name="last_name" required
                class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
-               placeholder="e.g. Adane">
+               placeholder="********">
         <p class="mt-1 text-xs text-rose-600 hidden" id="errLastName">Last name is required.</p>
       </div>
 
@@ -174,7 +209,7 @@
   </div>
 
   <!-- RIGHT: Biometric Enrollment -->
-  <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+  <div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
     <div class="flex items-start justify-between gap-3">
       <div>
         <div class="text-sm font-semibold">Biometric Enrollment</div>
@@ -190,10 +225,14 @@
 
     <!-- Camera -->
     <div class="mt-4 rounded-2xl border border-slate-200 bg-black overflow-hidden relative">
-      <video id="video" class="w-full h-44 object-cover" autoplay playsinline></video>
+      <video id="video" class="w-full h-40 sm:h-44 object-cover" autoplay playsinline></video>
       <div class="pointer-events-none absolute inset-0 border-2 border-white/10"></div>
       <div class="absolute top-3 left-3 text-xs px-2 py-1 rounded-full bg-white/10 text-white backdrop-blur">
         Camera: <span id="camLabel">Back (preferred)</span>
+      </div>
+      <div class="face-guide-wrap">
+        <div class="face-guide-oval"></div>
+        <div class="face-guide-text">Keep full face in frame</div>
       </div>
     </div>
 

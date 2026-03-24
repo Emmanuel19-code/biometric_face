@@ -199,6 +199,11 @@
                 placeholder="Invigilators for this hall"
               >
             </div>
+            <div id="hallUsage-{{ h.id }}" class="mt-2 text-xs text-slate-500">
+              Usage: loading...
+            </div>
+            <div id="hallUsageSessions-{{ h.id }}" class="mt-2 hidden max-h-24 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+            </div>
           </div>
           {% endfor %}
         </div>
@@ -241,6 +246,7 @@
 
   const selectedDays = new Set();
   const selectedCourses = new Map();
+  const hallUsageById = new Map();
 
   function getSelectedWeekdays() {
     return Array.from(document.querySelectorAll(".weekday-check:checked"))
@@ -279,6 +285,93 @@
     if (c <= 120) return 2;
     if (c <= 250) return 3;
     return 4;
+  }
+
+  function formatSessionWindow(startIso, endIso) {
+    if (!startIso) return "";
+    const start = new Date(startIso);
+    const end = endIso ? new Date(endIso) : null;
+    if (Number.isNaN(start.getTime())) return "";
+    const dateText = start.toLocaleDateString();
+    const startText = start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (!end || Number.isNaN(end.getTime())) {
+      return `${dateText} ${startText}`;
+    }
+    const endText = end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return `${dateText} ${startText}-${endText}`;
+  }
+
+  function renderHallUsage() {
+    document.querySelectorAll(".hall-check").forEach((checkbox) => {
+      const hallId = Number(checkbox.value);
+      const summaryEl = document.getElementById(`hallUsage-${hallId}`);
+      const detailsEl = document.getElementById(`hallUsageSessions-${hallId}`);
+      if (!summaryEl || !detailsEl) return;
+
+      const usage = hallUsageById.get(hallId);
+      if (!usage) {
+        summaryEl.textContent = "Usage: no data.";
+        detailsEl.classList.add("hidden");
+        detailsEl.innerHTML = "";
+        return;
+      }
+
+      const sessionsCount = Number(usage.sessions_count || 0);
+      const currentExpectedUsed = Number(usage.current_expected_used || 0);
+      const currentAvailableSeats = Number(usage.current_available_seats || 0);
+      summaryEl.textContent = `Current availability: ${currentAvailableSeats} seat(s) free (in use now: ${currentExpectedUsed}, non-ended bookings: ${sessionsCount}).`;
+
+      const sessions = Array.isArray(usage.sessions) ? usage.sessions : [];
+      if (!checkbox.checked || !sessions.length) {
+        detailsEl.classList.add("hidden");
+        detailsEl.innerHTML = sessions.length ? "Select this hall to view session breakdown." : "No sessions in selected period.";
+        return;
+      }
+
+      detailsEl.classList.remove("hidden");
+      detailsEl.innerHTML = sessions.map((s) => {
+        const label = String(s.session_label || "N/A");
+        const expected = Number(s.expected_students || 0);
+        const windowText = formatSessionWindow(s.start_time, s.end_time);
+        const state = s.is_current ? "ONGOING" : "UPCOMING";
+        return `<div>${label}: ${expected} seat(s) | ${state}${windowText ? ` | ${windowText}` : ""}</div>`;
+      }).join("");
+    });
+  }
+
+  async function loadHallUsage() {
+    const periodId = Number(periodSelect?.value || 0);
+    const params = new URLSearchParams();
+    if (periodId) params.set("period_id", String(periodId));
+    const url = params.toString()
+      ? `/admin/exam-scheduler/hall-usage?${params.toString()}`
+      : "/admin/exam-scheduler/hall-usage";
+
+    try {
+      const res = await fetch(url);
+      const data = await res.json().catch(() => ({}));
+      hallUsageById.clear();
+      const usageRows = Array.isArray(data.hall_usage) ? data.hall_usage : [];
+      usageRows.forEach((row) => {
+        const hallId = Number(row.hall_id);
+        if (Number.isFinite(hallId)) {
+          hallUsageById.set(hallId, row);
+        }
+      });
+      renderHallUsage();
+    } catch (_err) {
+      hallUsageById.clear();
+      renderHallUsage();
+      setMessage(scheduleMsg, "Unable to load hall usage right now.");
+      return;
+    }
+    if (!hallUsageById.size) {
+      document.querySelectorAll(".hall-check").forEach((checkbox) => {
+        const hallId = Number(checkbox.value);
+        const summaryEl = document.getElementById(`hallUsage-${hallId}`);
+        if (summaryEl) summaryEl.textContent = "Usage: no sessions found for selected period.";
+      });
+    }
   }
 
   function renderExamDays() {
@@ -337,6 +430,7 @@
       if (checkbox.checked && !input.value) {
         input.value = String(auto);
       }
+      renderHallUsage();
     });
   });
 
@@ -542,5 +636,6 @@
 
   renderExamDays();
   renderCourseRows();
+  loadHallUsage();
 </script>
 {% endblock %}

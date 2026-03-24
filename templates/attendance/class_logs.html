@@ -2,7 +2,7 @@
 {% set title = "Class Attendance Logs" %}
 {% block content %}
 
-<div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+<div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
   <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
     <div>
       <div class="text-sm font-semibold">Class Attendance Logs</div>
@@ -17,11 +17,25 @@
         </option>
         {% endfor %}
       </select>
+      <select name="per_page" class="w-full sm:w-auto rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="20" {% if pagination and pagination.per_page == 20 %}selected{% endif %}>20</option>
+        <option value="50" {% if pagination and pagination.per_page == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if pagination and pagination.per_page == 100 %}selected{% endif %}>100</option>
+        <option value="200" {% if pagination and pagination.per_page == 200 %}selected{% endif %}>200</option>
+        <option value="300" {% if pagination and pagination.per_page == 300 %}selected{% endif %}>300</option>
+      </select>
+      <input type="hidden" name="page" value="1" />
       <button class="w-full sm:w-auto rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">Filter</button>
     </form>
   </div>
 
-  <div class="mt-4 -mx-4 sm:mx-0 overflow-auto rounded-xl border border-slate-200">
+  {% if pagination is defined %}
+  <div class="mt-2 text-xs text-slate-500">
+    Showing {{ pagination.start_item }} - {{ pagination.end_item }} of {{ pagination.total_count }}
+  </div>
+  {% endif %}
+
+  <div class="mt-4 overflow-auto rounded-xl border border-slate-200">
     <table class="w-full min-w-[860px] text-sm">
       <thead class="bg-slate-50 text-slate-500">
         <tr>
@@ -54,6 +68,34 @@
       </tbody>
     </table>
   </div>
+
+  {% if pagination is defined and pagination.total_pages > 1 %}
+  <div class="mt-4 flex items-center justify-between gap-2">
+    <div class="text-xs text-slate-500">Page {{ pagination.page }} / {{ pagination.total_pages }}</div>
+    <div class="flex items-center gap-2">
+      {% if pagination.has_prev %}
+      <a
+        href="{{ url_for('web.class_attendance_logs_page', page=pagination.prev_page, per_page=pagination.per_page, course_code=selected_course) }}"
+        class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50"
+      >
+        Previous
+      </a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Previous</span>
+      {% endif %}
+      {% if pagination.has_next %}
+      <a
+        href="{{ url_for('web.class_attendance_logs_page', page=pagination.next_page, per_page=pagination.per_page, course_code=selected_course) }}"
+        class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50"
+      >
+        Next
+      </a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Next</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {% endblock %}

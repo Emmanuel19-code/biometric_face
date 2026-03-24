@@ -2,22 +2,27 @@
 {% set title = "All Sessions" %}
 {% block content %}
 
-<div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+<div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
     <div>
       <div class="text-sm font-semibold">All Exam Sessions</div>
       <div class="text-xs text-slate-500 mt-1">Every session created in the system, newest first.</div>
     </div>
     <div class="text-xs px-3 py-2 rounded-full bg-slate-100 text-slate-700">
-      Total: {{ sessions|length }}
+      Total: {{ (pagination.total_count if pagination is defined else sessions|length) }}
     </div>
   </div>
+  {% if pagination is defined %}
+  <div class="mt-2 text-xs text-slate-500">
+    Showing {{ pagination.start_item }} - {{ pagination.end_item }} of {{ pagination.total_count }}
+  </div>
+  {% endif %}
   <p id="sessionActionMsg" class="text-sm mt-3 hidden"></p>
 
   {% if sessions %}
-  <div class="mt-4 -mx-4 sm:mx-0 overflow-x-auto rounded-xl border border-slate-200">
-    <table class="w-full min-w-[1080px] text-sm">
-      <thead class="bg-white text-slate-500 border-b">
+  <div class="mt-4 max-h-[64dvh] overflow-auto rounded-xl border border-slate-200">
+    <table class="w-full min-w-[980px] text-sm">
+      <thead class="bg-white text-slate-500 border-b sticky top-0 z-10">
         <tr>
           <th class="text-left py-3 px-3">Session</th>
           <th class="text-left py-3 px-3">Course</th>
@@ -28,15 +33,20 @@
           <th class="text-left py-3 px-3">Verified</th>
           <th class="text-left py-3 px-3">Invigilators</th>
           <th class="text-left py-3 px-3">Status</th>
+          <th class="text-left py-3 px-3">Activity</th>
           {% if session.get('role') == 'super_admin' %}
-          <th class="text-left py-3 px-3">Action</th>
+          <th class="text-left py-3 px-3">Control</th>
           {% endif %}
         </tr>
       </thead>
       <tbody class="divide-y bg-white">
         {% for s in sessions %}
         <tr class="hover:bg-slate-50">
-          <td class="py-3 px-3 font-medium">{{ s.session_name }}</td>
+          <td class="py-3 px-3 font-medium">
+            <a href="{{ url_for('web.session_activity_page', session_id=s.id) }}" class="text-brand-700 hover:underline">
+              {{ s.session_name }}
+            </a>
+          </td>
           <td class="py-3 px-3">{{ s.course_code or "N/A" }}</td>
           <td class="py-3 px-3">{{ s.venue or "N/A" }}</td>
           <td class="py-3 px-3 whitespace-nowrap">{{ s.start_time.strftime('%Y-%m-%d %H:%M') if s.start_time else "N/A" }}</td>
@@ -54,6 +64,14 @@
             {% else %}
               <span class="px-2 py-1 rounded-full text-xs bg-emerald-50 text-emerald-700">Live</span>
             {% endif %}
+          </td>
+          <td class="py-3 px-3 whitespace-nowrap">
+            <a
+              href="{{ url_for('web.session_activity_page', session_id=s.id) }}"
+              class="inline-flex items-center rounded-xl border border-brand-200 text-brand-700 px-3 py-2 text-xs font-semibold hover:bg-brand-50"
+            >
+              View Activity
+            </a>
           </td>
           {% if session.get('role') == 'super_admin' %}
           <td class="py-3 px-3">
@@ -74,7 +92,7 @@
               Start Session
             </button>
             {% else %}
-            <span class="text-xs text-slate-400">No action</span>
+            <span class="text-xs text-slate-400">No control</span>
             {% endif %}
           </td>
           {% endif %}
@@ -86,6 +104,49 @@
   {% else %}
   <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-slate-600 text-sm">
     No exam sessions have been created yet.
+  </div>
+  {% endif %}
+
+  {% if pagination is defined and pagination.total_pages > 1 %}
+  <div class="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    <form method="GET" action="{{ url_for('web.all_sessions_page') }}" class="flex items-center gap-2">
+      <label for="perPage" class="text-xs text-slate-500">Rows per page</label>
+      <select id="perPage" name="per_page" class="rounded-lg border border-slate-200 px-2 py-1 text-xs">
+        <option value="10" {% if pagination.per_page == 10 %}selected{% endif %}>10</option>
+        <option value="25" {% if pagination.per_page == 25 %}selected{% endif %}>25</option>
+        <option value="50" {% if pagination.per_page == 50 %}selected{% endif %}>50</option>
+      </select>
+      <input type="hidden" name="page" value="1">
+      <button type="submit" class="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold hover:bg-slate-50">
+        Apply
+      </button>
+    </form>
+
+    <div class="flex items-center gap-2">
+      {% if pagination.has_prev %}
+      <a
+        href="{{ url_for('web.all_sessions_page', page=pagination.prev_page, per_page=pagination.per_page) }}"
+        class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50"
+      >
+        Previous
+      </a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Previous</span>
+      {% endif %}
+
+      <span class="text-xs text-slate-600">Page {{ pagination.page }} / {{ pagination.total_pages }}</span>
+
+      {% if pagination.has_next %}
+      <a
+        href="{{ url_for('web.all_sessions_page', page=pagination.next_page, per_page=pagination.per_page) }}"
+        class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50"
+      >
+        Next
+      </a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Next</span>
+      {% endif %}
+    </div>
   </div>
   {% endif %}
 </div>

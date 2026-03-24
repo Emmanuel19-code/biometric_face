@@ -31,6 +31,8 @@
           {% endfor %}
         </select>
       </div>
+      <div id="createHallUsageSummary" class="text-xs text-slate-500">Usage: select a hall to view current load.</div>
+      <div id="createHallUsageSessions" class="hidden max-h-28 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600"></div>
       <div class="grid grid-cols-2 gap-2">
         <input id="expectedStudents" type="number" min="1" class="rounded-xl border border-slate-200 px-4 py-2" placeholder="Expected students" required />
         <input id="venue" class="rounded-xl border border-slate-200 px-4 py-2" placeholder="Venue auto-populated from hall" readonly />
@@ -114,6 +116,8 @@
           <input id="editStartTime" type="datetime-local" class="rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white">
           <input id="editEndTime" type="datetime-local" class="rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white">
         </div>
+        <div id="editHallUsageSummary" class="mt-2 text-xs text-slate-500">Usage: select a hall to view current load.</div>
+        <div id="editHallUsageSessions" class="mt-2 hidden max-h-28 overflow-auto rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-600"></div>
         <label class="mt-2 inline-flex items-center gap-2 text-sm text-slate-700">
           <input id="editAllowFileUpload" type="checkbox" class="rounded border-slate-300">
           <span>Allow file upload for this session</span>
@@ -172,6 +176,11 @@
   const startTimeInput = document.getElementById("startTime");
   const sessionPeriodInput = document.getElementById("sessionPeriod");
   const paperGroupPreview = document.getElementById("paperGroupPreview");
+  const createHallUsageSummary = document.getElementById("createHallUsageSummary");
+  const createHallUsageSessions = document.getElementById("createHallUsageSessions");
+  const editHallUsageSummary = document.getElementById("editHallUsageSummary");
+  const editHallUsageSessions = document.getElementById("editHallUsageSessions");
+  const hallUsageById = new Map();
 
   function parsePapers(raw) {
     return raw.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
@@ -210,9 +219,79 @@
     el.className = ok ? "text-sm mt-3 text-emerald-700" : "text-sm mt-3 text-rose-700";
   }
 
+  function formatSessionWindow(startIso, endIso) {
+    if (!startIso) return "";
+    const start = new Date(startIso);
+    const end = endIso ? new Date(endIso) : null;
+    if (Number.isNaN(start.getTime())) return "";
+    const dateText = start.toLocaleDateString();
+    const startText = start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (!end || Number.isNaN(end.getTime())) return `${dateText} ${startText}`;
+    const endText = end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return `${dateText} ${startText}-${endText}`;
+  }
+
+  function renderSelectedHallUsage(hallId, summaryEl, detailsEl) {
+    if (!summaryEl || !detailsEl) return;
+    if (!hallId) {
+      summaryEl.textContent = "Usage: select a hall to view current load.";
+      detailsEl.classList.add("hidden");
+      detailsEl.innerHTML = "";
+      return;
+    }
+    const usage = hallUsageById.get(Number(hallId));
+    if (!usage) {
+      summaryEl.textContent = "Usage: no usage data found for this hall.";
+      detailsEl.classList.add("hidden");
+      detailsEl.innerHTML = "";
+      return;
+    }
+    const sessionsCount = Number(usage.sessions_count || 0);
+    const currentUsed = Number(usage.current_expected_used || 0);
+    const currentAvailable = Number(usage.current_available_seats || 0);
+    summaryEl.textContent = `Current availability: ${currentAvailable} seat(s) free (in use now: ${currentUsed}, non-ended bookings: ${sessionsCount}).`;
+
+    const sessions = Array.isArray(usage.sessions) ? usage.sessions : [];
+    if (!sessions.length) {
+      detailsEl.classList.add("hidden");
+      detailsEl.innerHTML = "";
+      return;
+    }
+    detailsEl.classList.remove("hidden");
+    detailsEl.innerHTML = sessions.map((s) => {
+      const label = String(s.session_label || "N/A");
+      const expected = Number(s.expected_students || 0);
+      const when = formatSessionWindow(s.start_time, s.end_time);
+      const state = s.is_current ? "ONGOING" : "UPCOMING";
+      return `<div>${label}: ${expected} seat(s) | ${state}${when ? ` | ${when}` : ""}</div>`;
+    }).join("");
+  }
+
+  async function loadHallUsage() {
+    try {
+      const res = await fetch("/admin/exam-scheduler/hall-usage");
+      const data = await res.json().catch(() => ({}));
+      hallUsageById.clear();
+      const rows = Array.isArray(data.hall_usage) ? data.hall_usage : [];
+      rows.forEach((row) => {
+        const hallId = Number(row.hall_id);
+        if (Number.isFinite(hallId)) hallUsageById.set(hallId, row);
+      });
+    } catch (_err) {
+      hallUsageById.clear();
+    }
+
+    renderSelectedHallUsage(Number(hallSelect?.value || 0), createHallUsageSummary, createHallUsageSessions);
+    renderSelectedHallUsage(Number(editHallId?.value || 0), editHallUsageSummary, editHallUsageSessions);
+  }
+
   hallSelect?.addEventListener("change", () => {
     const selected = hallSelect.options[hallSelect.selectedIndex];
     venueInput.value = selected && selected.value ? (selected.dataset.name || "") : "";
+    renderSelectedHallUsage(Number(hallSelect.value || 0), createHallUsageSummary, createHallUsageSessions);
+  });
+  editHallId?.addEventListener("change", () => {
+    renderSelectedHallUsage(Number(editHallId.value || 0), editHallUsageSummary, editHallUsageSessions);
   });
 
   function updatePaperGroupPreview() {
@@ -286,6 +365,7 @@
     editStartTime.value = isoToLocalInput(s.start_time);
     editEndTime.value = isoToLocalInput(s.end_time);
     editAllowFileUpload.checked = !!s.allow_file_upload;
+    renderSelectedHallUsage(Number(editHallId.value || 0), editHallUsageSummary, editHallUsageSessions);
 
     editPapers.value = (data.papers || []).map((p) => {
       return p.paper_code ? `${p.paper_code}|${p.paper_title}` : p.paper_title;
@@ -320,6 +400,7 @@
       return;
     }
     setMessage(editMsg, data.message || "Schedule updated", true);
+    await loadHallUsage();
   });
 
   savePapersBtn.addEventListener("click", async () => {
@@ -353,6 +434,8 @@
     }
     setMessage(editMsg, "Lecturers saved", true);
   });
+
+  loadHallUsage();
 </script>
 
 {% endblock %}

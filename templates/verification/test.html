@@ -1,9 +1,44 @@
 {% extends "layout.html" %}
 {% set title = "Biometric Verification Test" %}
 {% block content %}
+<style>
+  .face-guide-wrap {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: grid;
+    place-items: center;
+  }
+  .face-guide-oval {
+    width: min(68%, 250px);
+    aspect-ratio: 3 / 4;
+    border-radius: 9999px;
+    border: 2px dashed rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.16);
+  }
+  .face-guide-text {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: #fff;
+    background: rgba(15, 23, 42, 0.45);
+    border-radius: 9999px;
+    padding: 4px 10px;
+    white-space: nowrap;
+  }
+  @media (max-width: 640px) {
+    .face-guide-text {
+      font-size: 10px;
+      bottom: 6px;
+      padding: 3px 8px;
+    }
+  }
+</style>
 
 <div class="grid lg:grid-cols-2 gap-4 items-start">
-  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+  <div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
     <div class="text-sm font-semibold">Verify Student Biometric</div>
     <p class="text-xs text-slate-500 mt-1">Use this page to test matching without creating attendance records.</p>
 
@@ -15,9 +50,13 @@
       </div>
 
       <div class="rounded-2xl border border-slate-200 bg-black overflow-hidden relative">
-        <video id="video" class="w-full h-56 sm:h-80 object-cover" autoplay playsinline></video>
+        <video id="video" class="w-full h-52 sm:h-80 object-cover" autoplay playsinline></video>
         <div class="absolute top-3 left-3 text-xs px-2 py-1 rounded-full bg-white/10 text-white backdrop-blur">
           Camera: <span id="camLabel">Front</span>
+        </div>
+        <div class="face-guide-wrap">
+          <div class="face-guide-oval"></div>
+          <div class="face-guide-text">Align full face inside oval</div>
         </div>
       </div>
       <canvas id="canvas" class="hidden"></canvas>
@@ -69,7 +108,7 @@
     </div>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+  <div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
     <div class="text-sm font-semibold">Update Student Biometric</div>
     <p class="text-xs text-slate-500 mt-1">Upload 3 or more clear face images to refresh saved templates.</p>
 

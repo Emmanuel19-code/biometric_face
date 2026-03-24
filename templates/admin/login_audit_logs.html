@@ -2,11 +2,14 @@
 {% set title = "Login Audit Logs" %}
 {% block content %}
 
-<div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+<div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
   <div>
     <div class="text-sm font-semibold">Login Audit Logs</div>
     <div class="text-sm text-slate-600 mt-1">Track login and logout time for every user account.</div>
-    <div class="text-xs text-slate-500 mt-2">Showing {{ rows|length }} record(s).</div>
+    <div class="text-xs text-slate-500 mt-2">
+      Showing {{ (pagination.start_item if pagination is defined else 0) }} - {{ (pagination.end_item if pagination is defined else rows|length) }}
+      of {{ (pagination.total_count if pagination is defined else rows|length) }} record(s).
+    </div>
   </div>
 
   <form method="GET" action="{{ url_for('web.login_audit_logs_page') }}" class="mt-5 grid grid-cols-1 md:grid-cols-4 gap-2">
@@ -26,9 +29,15 @@
     </div>
 
     <div class="md:col-span-1">
-      <label class="text-xs text-slate-500">Limit</label>
-      <input name="limit" type="number" min="1" max="2000" value="{{ filters.limit or 500 }}"
-             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+      <label class="text-xs text-slate-500">Rows Per Page</label>
+      <select name="per_page" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="20" {% if filters.per_page == 20 %}selected{% endif %}>20</option>
+        <option value="50" {% if filters.per_page == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if filters.per_page == 100 %}selected{% endif %}>100</option>
+        <option value="200" {% if filters.per_page == 200 %}selected{% endif %}>200</option>
+        <option value="300" {% if filters.per_page == 300 %}selected{% endif %}>300</option>
+      </select>
+      <input type="hidden" name="page" value="1" />
     </div>
 
     <div class="md:col-span-4 flex flex-col sm:flex-row sm:flex-wrap gap-2">
@@ -43,7 +52,7 @@
   </form>
 
   {% if rows and rows|length > 0 %}
-  <div class="mt-5 -mx-4 sm:mx-0 overflow-x-auto">
+  <div class="mt-5 overflow-x-auto">
     <table class="w-full min-w-[1100px] text-sm">
       <thead class="bg-slate-50 text-slate-600 border-y border-slate-200">
         <tr>
@@ -87,6 +96,56 @@
   {% else %}
   <div class="mt-5 rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">
     No login audit records found.
+  </div>
+  {% endif %}
+
+  {% if pagination is defined and pagination.total_pages > 1 %}
+  <div class="mt-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+    <div class="text-xs text-slate-500">Page {{ pagination.page }} / {{ pagination.total_pages }}</div>
+    <div class="flex flex-wrap items-center gap-2">
+      {% if pagination.has_prev %}
+      <a href="{{ url_for('web.login_audit_logs_page', page=pagination.first_page, per_page=pagination.per_page, user_type=filters.user_type, q=filters.q) }}"
+         class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50">First</a>
+      <a href="{{ url_for('web.login_audit_logs_page', page=pagination.prev_page, per_page=pagination.per_page, user_type=filters.user_type, q=filters.q) }}"
+         class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50">Previous</a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">First</span>
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Previous</span>
+      {% endif %}
+
+      {% for p in pagination.page_items %}
+        {% if p is none %}
+        <span class="px-2 text-xs text-slate-400">...</span>
+        {% elif p == pagination.page %}
+        <span class="rounded-lg border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">{{ p }}</span>
+        {% else %}
+        <a href="{{ url_for('web.login_audit_logs_page', page=p, per_page=pagination.per_page, user_type=filters.user_type, q=filters.q) }}"
+           class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50">{{ p }}</a>
+        {% endif %}
+      {% endfor %}
+
+      {% if pagination.has_next %}
+      <a href="{{ url_for('web.login_audit_logs_page', page=pagination.next_page, per_page=pagination.per_page, user_type=filters.user_type, q=filters.q) }}"
+         class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50">Next</a>
+      <a href="{{ url_for('web.login_audit_logs_page', page=pagination.last_page, per_page=pagination.per_page, user_type=filters.user_type, q=filters.q) }}"
+         class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50">Last</a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Next</span>
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Last</span>
+      {% endif %}
+    </div>
+
+    <div>
+      <form method="GET" action="{{ url_for('web.login_audit_logs_page') }}" class="flex items-center gap-2">
+        <input type="hidden" name="user_type" value="{{ filters.user_type or '' }}">
+        <input type="hidden" name="q" value="{{ filters.q or '' }}">
+        <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+        <label class="text-xs text-slate-500">Go to</label>
+        <input name="page" type="number" min="1" max="{{ pagination.total_pages }}" value="{{ pagination.page }}"
+               class="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs">
+        <button type="submit" class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50">Go</button>
+      </form>
+    </div>
   </div>
   {% endif %}
 </div>

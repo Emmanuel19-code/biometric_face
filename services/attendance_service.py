@@ -167,6 +167,13 @@ class AttendanceService:
                     )
                     return False, f"Liveness check failed: {msg}", 0.0
 
+            live_emb = self.face_engine.extract_live_embedding(live_image)
+            if live_emb is None:
+                self._log_attempt(
+                    session_id, None, claimed, "FAIL", "No face detected in live image", 0.0, ip_address, device_info, station_id
+                )
+                return False, "No face detected in the image. Keep your full face centered and retry.", 0.0
+
             if student_id:
                 student = self.student_service.get_student(student_id)
                 if not student:
@@ -196,7 +203,7 @@ class AttendanceService:
                     return False, "Student is not registered for this examination session", 0.0
 
                 stored_encodings = self.student_service.get_face_encodings(student)
-                is_match, confidence = self.face_engine.verify_identity(live_image, stored_encodings)
+                is_match, confidence = self.face_engine.verify_live_embedding(live_emb, stored_encodings)
 
                 if not is_match:
                     self._log_attempt(
@@ -237,6 +244,7 @@ class AttendanceService:
 
             best_match = None
             best_confidence = 0.0
+            best_attempt_confidence = 0.0
 
             reg_rows = db_utils.fetch_all(
                 """
@@ -256,15 +264,16 @@ class AttendanceService:
             registered_student_ids = {r["student_id"] for r in reg_rows if r.get("student_id") is not None}
             if not registered_student_ids:
                 self._log_attempt(
-                    session_id, None, None, "FAIL", "No registered students for session", 0.0, ip_address, device_info, station_id
+                    session_id, None, claimed, "FAIL", "No registered students for session", 0.0, ip_address, device_info, station_id
                 )
-                return False, "No students registered for this session", 0.0
+                return False, "No registered candidates found for this session yet. Please register students for this paper before verification.", 0.0
 
             if cache is not None:
                 for s, encs in cache:
                     if s.get("id") not in registered_student_ids:
                         continue
-                    is_match, conf = self.face_engine.verify_identity(live_image, encs)
+                    is_match, conf = self.face_engine.verify_live_embedding(live_emb, encs)
+                    best_attempt_confidence = max(best_attempt_confidence, float(conf))
                     if is_match and conf > best_confidence:
                         best_match = s
                         best_confidence = conf
@@ -274,16 +283,17 @@ class AttendanceService:
                     if s.get("id") not in registered_student_ids:
                         continue
                     encs = self.student_service.get_face_encodings(s)
-                    is_match, conf = self.face_engine.verify_identity(live_image, encs)
+                    is_match, conf = self.face_engine.verify_live_embedding(live_emb, encs)
+                    best_attempt_confidence = max(best_attempt_confidence, float(conf))
                     if is_match and conf > best_confidence:
                         best_match = s
                         best_confidence = conf
 
             if not best_match:
                 self._log_attempt(
-                    session_id, None, None, "FAIL", "No match", 0.0, ip_address, device_info, station_id
+                    session_id, None, None, "FAIL", "No biometric match found", best_attempt_confidence, ip_address, device_info, station_id
                 )
-                return False, "No matching student found", 0.0
+                return False, "No biometric match found. Recapture in better lighting or enter Student ID for direct verification.", best_attempt_confidence
 
             existing = db_utils.fetch_one(
                 "SELECT id FROM attendances WHERE student_id = %s AND session_id = %s",

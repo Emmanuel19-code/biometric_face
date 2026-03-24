@@ -1,0 +1,150 @@
+{% extends "layout.html" %}
+{% set title = "Session Activity" %}
+{% block content %}
+
+<div class="space-y-4 min-w-0">
+  <div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+      <div>
+        <div class="text-sm font-semibold">Session Activity</div>
+        <div class="text-xs text-slate-500 mt-1">Detailed timeline and logs for the selected exam session.</div>
+      </div>
+      <a
+        href="{{ url_for('web.all_sessions_page') }}"
+        class="inline-flex items-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50"
+      >
+        Back to All Sessions
+      </a>
+    </div>
+
+    <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Session</div>
+        <div class="font-semibold mt-1 break-words">{{ session_row.session_name or "N/A" }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Course</div>
+        <div class="font-semibold mt-1">{{ session_row.course_code or "N/A" }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Venue</div>
+        <div class="font-semibold mt-1">{{ session_row.venue or "N/A" }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Start</div>
+        <div class="font-semibold mt-1">{{ session_row.start_time.strftime('%Y-%m-%d %H:%M') if session_row.start_time else "N/A" }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">End</div>
+        <div class="font-semibold mt-1">{{ session_row.end_time.strftime('%Y-%m-%d %H:%M') if session_row.end_time else "N/A" }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Active</div>
+        <div class="font-semibold mt-1">{{ "Yes" if session_row.is_active else "No" }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+    <div class="text-sm font-semibold">Session Summary</div>
+    <div class="mt-3 grid grid-cols-2 lg:grid-cols-6 gap-3 text-sm">
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Registered</div>
+        <div class="font-semibold mt-1">{{ summary.registered_count or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Attendance</div>
+        <div class="font-semibold mt-1">{{ summary.attendance_count or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Verifications</div>
+        <div class="font-semibold mt-1">{{ summary.verification_total or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Success</div>
+        <div class="font-semibold mt-1">{{ summary.verification_success or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Fail</div>
+        <div class="font-semibold mt-1">{{ summary.verification_fail or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-xs text-slate-500">Invigilators</div>
+        <div class="font-semibold mt-1">{{ summary.invigilator_count or 0 }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+    <div class="text-sm font-semibold">Activity Timeline</div>
+    <div class="text-xs text-slate-500 mt-1">Most recent events first.</div>
+    {% if activities %}
+    <div class="mt-4 rounded-xl border border-slate-200 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[860px] text-sm">
+          <thead class="bg-slate-50 text-slate-600 border-b">
+            <tr>
+              <th class="text-left py-2 px-3">Time</th>
+              <th class="text-left py-2 px-3">Type</th>
+              <th class="text-left py-2 px-3">Title</th>
+              <th class="text-left py-2 px-3">Details</th>
+              <th class="text-left py-2 px-3">Meta</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y bg-white">
+            {% for a in activities %}
+            <tr>
+              <td class="py-2 px-3 whitespace-nowrap">{{ a.timestamp.strftime('%Y-%m-%d %H:%M:%S') if a.timestamp else "N/A" }}</td>
+              <td class="py-2 px-3">
+                <span class="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">{{ a.badge }}</span>
+              </td>
+              <td class="py-2 px-3">{{ a.title }}</td>
+              <td class="py-2 px-3">{{ a.details }}</td>
+              <td class="py-2 px-3">{{ a.meta }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">
+      No activities recorded for this session yet.
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+    <div class="text-sm font-semibold">Assigned Invigilators</div>
+    {% if invigilators %}
+    <div class="mt-3 overflow-x-auto rounded-xl border border-slate-200">
+      <table class="w-full min-w-[680px] text-sm">
+        <thead class="bg-slate-50 text-slate-600 border-b">
+          <tr>
+            <th class="text-left py-2 px-3">Name</th>
+            <th class="text-left py-2 px-3">Email</th>
+            <th class="text-left py-2 px-3">Username</th>
+            <th class="text-left py-2 px-3">Assigned At</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y bg-white">
+          {% for inv in invigilators %}
+          <tr>
+            <td class="py-2 px-3">{{ inv.full_name or "N/A" }}</td>
+            <td class="py-2 px-3">{{ inv.email or "N/A" }}</td>
+            <td class="py-2 px-3">{{ inv.username or "N/A" }}</td>
+            <td class="py-2 px-3 whitespace-nowrap">{{ inv.assigned_at.strftime('%Y-%m-%d %H:%M:%S') if inv.assigned_at else "N/A" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+      No invigilators assigned to this session.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

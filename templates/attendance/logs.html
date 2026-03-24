@@ -2,12 +2,15 @@
 {% set title = "Attendance Logs" %}
 {% block content %}
 
-<div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+<div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
   <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
     <div>
       <div class="text-sm font-semibold">Exam Attendance Logs</div>
       <div class="text-sm text-slate-600 mt-1">Live verification attempts from the database.</div>
-      <div class="text-xs text-slate-500 mt-2">Showing {{ rows|length }} record(s).</div>
+      <div class="text-xs text-slate-500 mt-2">
+        Showing {{ (pagination.start_item if pagination is defined else 0) }} - {{ (pagination.end_item if pagination is defined else rows|length) }}
+        of {{ (pagination.total_count if pagination is defined else rows|length) }} record(s).
+      </div>
     </div>
   </div>
 
@@ -45,9 +48,15 @@
     </div>
 
     <div class="md:col-span-1">
-      <label class="text-xs text-slate-500">Limit</label>
-      <input name="limit" type="number" min="1" max="2000" value="{{ filters.limit or 500 }}"
-             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+      <label class="text-xs text-slate-500">Rows Per Page</label>
+      <select name="per_page" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="20" {% if filters.per_page == 20 %}selected{% endif %}>20</option>
+        <option value="50" {% if filters.per_page == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if filters.per_page == 100 %}selected{% endif %}>100</option>
+        <option value="200" {% if filters.per_page == 200 %}selected{% endif %}>200</option>
+        <option value="300" {% if filters.per_page == 300 %}selected{% endif %}>300</option>
+      </select>
+      <input type="hidden" name="page" value="1" />
     </div>
 
     <div class="md:col-span-4 flex flex-col sm:flex-row sm:flex-wrap gap-2">
@@ -79,7 +88,7 @@
           Paper: {{ pg.paper_title }} | Total: {{ pg.total }} | Success: {{ pg.success }} | Fail: {{ pg.fail }}
         </div>
       </div>
-      <div class="-mx-4 sm:mx-0 overflow-x-auto">
+      <div class="overflow-x-auto">
         <table class="w-full min-w-[900px] text-sm">
           <thead class="bg-white text-slate-600 border-b border-slate-100">
             <tr>
@@ -124,6 +133,34 @@
   {% else %}
   <div class="mt-5 rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">
     No attendance logs found for the selected filters.
+  </div>
+  {% endif %}
+
+  {% if pagination is defined and pagination.total_pages > 1 %}
+  <div class="mt-4 flex items-center justify-between gap-2">
+    <div class="text-xs text-slate-500">Page {{ pagination.page }} / {{ pagination.total_pages }}</div>
+    <div class="flex items-center gap-2">
+      {% if pagination.has_prev %}
+      <a
+        href="{{ url_for('web.attendance_logs_page', page=pagination.prev_page, per_page=pagination.per_page, session_id=filters.session_id, outcome=filters.outcome, q=filters.q) }}"
+        class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50"
+      >
+        Previous
+      </a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Previous</span>
+      {% endif %}
+      {% if pagination.has_next %}
+      <a
+        href="{{ url_for('web.attendance_logs_page', page=pagination.next_page, per_page=pagination.per_page, session_id=filters.session_id, outcome=filters.outcome, q=filters.q) }}"
+        class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50"
+      >
+        Next
+      </a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Next</span>
+      {% endif %}
+    </div>
   </div>
   {% endif %}
 </div>

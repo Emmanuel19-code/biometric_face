@@ -330,15 +330,36 @@ class FaceRecognitionEngine:
         return encodings
 
     def verify_identity(self, live_image, stored_encodings: List[np.ndarray]):
+        live_emb = self.extract_live_embedding(live_image)
+        if live_emb is None or not stored_encodings:
+            return False, 0.0
+        return self.verify_live_embedding(live_emb, stored_encodings)
+
+    def extract_live_embedding(self, live_image) -> Optional[np.ndarray]:
         ok, _, live_emb = self.detect_face(live_image)
-        if not ok or live_emb is None or not stored_encodings:
+        if not ok or live_emb is None:
+            return None
+        return live_emb
+
+    def verify_live_embedding(self, live_emb: np.ndarray, stored_encodings: List[np.ndarray]):
+        if live_emb is None or not stored_encodings:
             return False, 0.0
 
-        dists = [self._cosine_distance(live_emb, se) for se in stored_encodings]
-        best = min(dists)
+        best = self.best_distance_for_live_embedding(live_emb, stored_encodings)
         is_match = best <= self.match_threshold
         confidence = max(0.0, 1.0 - best)
         return is_match, confidence
+
+    def best_distance_for_live_embedding(self, live_emb: np.ndarray, stored_encodings: List[np.ndarray]) -> float:
+        if live_emb is None or not stored_encodings:
+            return float("inf")
+        mat = np.asarray(stored_encodings, dtype=np.float32)
+        if mat.size == 0:
+            return float("inf")
+        if mat.ndim == 1:
+            mat = mat.reshape(1, -1)
+        dists = 1.0 - np.dot(mat, live_emb.astype(np.float32))
+        return float(np.min(dists))
 
     def validate_image_quality(self, image):
         try:

@@ -332,6 +332,131 @@ def _get_exam_period_by_id(period_id):
     )
 
 
+def _coerce_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _coerce_date(value):
+    if value is None:
+        return None
+    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+        try:
+            return value if not isinstance(value, datetime) else value.date()
+        except Exception:
+            pass
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _session_overlaps_period(row, period):
+    if not period:
+        return True
+    period_start = _coerce_date(period.get("start_date"))
+    period_end = _coerce_date(period.get("end_date"))
+    if not period_start or not period_end:
+        return True
+
+    start_dt = _coerce_datetime(row.get("start_time"))
+    end_dt = _coerce_datetime(row.get("end_time")) or start_dt
+    if not start_dt and not end_dt:
+        return True
+
+    start_date = (start_dt or end_dt).date()
+    end_date = (end_dt or start_dt).date()
+    return start_date <= period_end and end_date >= period_start
+
+
+def _build_hall_usage_summary(period=None):
+    now_utc = datetime.utcnow()
+    rows = db_utils.fetch_all(
+        """
+        SELECT
+            h.id AS hall_id,
+            h.name AS hall_name,
+            h.capacity AS hall_capacity,
+            es.id AS session_id,
+            es.session_name,
+            es.course_code,
+            es.expected_students,
+            es.start_time,
+            es.end_time
+        FROM exam_halls h
+        LEFT JOIN examination_sessions es ON es.hall_id = h.id
+        WHERE h.is_active = TRUE
+        ORDER BY h.name ASC, es.start_time ASC, es.id ASC
+        """
+    )
+
+    out = {}
+    for row in rows:
+        hall_id = int(row.get("hall_id"))
+        if hall_id not in out:
+            out[hall_id] = {
+                "hall_id": hall_id,
+                "hall_name": row.get("hall_name"),
+                "hall_capacity": int(row.get("hall_capacity") or 0),
+                "total_expected_used": 0,
+                "sessions_count": 0,
+                "sessions": [],
+            }
+        session_id = row.get("session_id")
+        if session_id is None:
+            continue
+        if not _session_overlaps_period(row, period):
+            continue
+
+        start_dt = _coerce_datetime(row.get("start_time"))
+        end_dt = _coerce_datetime(row.get("end_time"))
+        if end_dt and end_dt < now_utc:
+            # Exclude sessions that have already ended.
+            continue
+
+        expected_students = int(row.get("expected_students") or 0)
+        session_label = str(row.get("course_code") or row.get("session_name") or "N/A").strip() or "N/A"
+        is_current = False
+        if start_dt and end_dt:
+            is_current = start_dt <= now_utc <= end_dt
+        elif start_dt and not end_dt:
+            is_current = start_dt <= now_utc
+        elif end_dt and not start_dt:
+            is_current = now_utc <= end_dt
+
+        out[hall_id]["sessions"].append(
+            {
+                "session_id": int(session_id),
+                "session_label": session_label,
+                "expected_students": expected_students,
+                "start_time": start_dt.isoformat() if start_dt else None,
+                "end_time": end_dt.isoformat() if end_dt else None,
+                "is_current": bool(is_current),
+            }
+        )
+        out[hall_id]["total_expected_used"] += expected_students
+        if is_current:
+            out[hall_id]["current_expected_used"] = int(out[hall_id].get("current_expected_used") or 0) + expected_students
+
+    for hall in out.values():
+        hall["current_expected_used"] = int(hall.get("current_expected_used") or 0)
+        hall["current_available_seats"] = max(0, int(hall["hall_capacity"]) - hall["current_expected_used"])
+        hall["sessions_count"] = len(hall["sessions"])
+    return sorted(out.values(), key=lambda h: str(h.get("hall_name") or ""))
+
+
 def _parse_hhmm_time(value):
     raw = str(value or "").strip()
     try:
@@ -2020,7 +2145,9 @@ def attendance_logs_page():
     session_id = request.args.get("session_id", type=int)
     outcome = str(request.args.get("outcome") or "").strip().upper()
     q = str(request.args.get("q") or "").strip()
-    limit = min(request.args.get("limit", default=500, type=int), 2000)
+    page = max(1, request.args.get("page", default=1, type=int) or 1)
+    per_page = request.args.get("per_page", default=100, type=int) or 100
+    per_page = max(20, min(per_page, 300))
 
     where = []
     params = []
@@ -2054,13 +2181,47 @@ def attendance_logs_page():
                 "attendance/logs.html",
                 rows=[],
                 sessions=[],
-                filters={"session_id": session_id, "outcome": outcome, "q": q, "limit": limit},
+                filters={"session_id": session_id, "outcome": outcome, "q": q, "per_page": per_page},
+                pagination={
+                    "page": 1,
+                    "per_page": per_page,
+                    "total_count": 0,
+                    "total_pages": 1,
+                    "has_prev": False,
+                    "has_next": False,
+                    "prev_page": 1,
+                    "next_page": 1,
+                    "start_item": 0,
+                    "end_item": 0,
+                },
             )
         placeholders = ", ".join(["%s"] * len(assigned_codes))
         where.append(f"UPPER(COALESCE(es.course_code, '')) IN ({placeholders})")
         params.extend(assigned_codes)
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    total_row = db_utils.fetch_one(
+        f"""
+        SELECT COUNT(*) AS c
+        FROM verification_logs vl
+        LEFT JOIN students s ON s.id = vl.student_id
+        LEFT JOIN examination_sessions es ON es.id = vl.session_id
+        LEFT JOIN (
+            SELECT session_id, MIN(paper_title) AS paper_title
+            FROM exam_papers
+            GROUP BY session_id
+        ) ep ON ep.session_id = es.id
+        {where_sql}
+        """,
+        tuple(params),
+    )
+    total_count = int((total_row or {}).get("c") or 0)
+    total_pages = max(1, math.ceil(total_count / per_page)) if total_count else 1
+    page = min(page, total_pages)
+    offset = (page - 1) * per_page
+
+    page_params = list(params)
+    page_params.extend([int(per_page), int(offset)])
     rows = db_utils.fetch_all(
         f"""
         SELECT
@@ -2091,9 +2252,9 @@ def attendance_logs_page():
         ) ep ON ep.session_id = es.id
         {where_sql}
         ORDER BY vl.timestamp DESC
-        LIMIT {int(limit)}
+        LIMIT %s OFFSET %s
         """,
-        tuple(params),
+        tuple(page_params),
     )
     grouped_logs = {}
     for r in rows:
@@ -2166,7 +2327,19 @@ def attendance_logs_page():
         rows=rows,
         grouped_sessions=grouped_sessions,
         sessions=sessions,
-        filters={"session_id": session_id, "outcome": outcome, "q": q, "limit": limit},
+        filters={"session_id": session_id, "outcome": outcome, "q": q, "per_page": per_page},
+        pagination={
+            "page": page,
+            "per_page": per_page,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_prev": page > 1,
+            "has_next": page < total_pages,
+            "prev_page": page - 1,
+            "next_page": page + 1,
+            "start_item": (offset + 1) if total_count else 0,
+            "end_item": min(offset + per_page, total_count),
+        },
     )
 
 @web_bp.get("/students")
@@ -2320,6 +2493,9 @@ def verify_class_attendance():
         student_service = _get_student_service()
         student = None
         confidence = 0.0
+        live_emb = student_service.face_engine.extract_live_embedding(live_img)
+        if live_emb is None:
+            return jsonify({"error": "No face detected in the captured image. Keep your full face centered and retry."}), 400
         if student_identifier:
             student = student_service.get_student(student_identifier)
             if not student:
@@ -2331,7 +2507,7 @@ def verify_class_attendance():
             if not stored_encodings:
                 return jsonify({"error": "Student has no saved biometric templates"}), 400
 
-            is_match, confidence = student_service.face_engine.verify_identity(live_img, stored_encodings)
+            is_match, confidence = student_service.face_engine.verify_live_embedding(live_emb, stored_encodings)
             if not is_match:
                 return jsonify({
                     "error": f"Identity verification failed. Confidence: {confidence:.2f}",
@@ -2344,17 +2520,22 @@ def verify_class_attendance():
 
             best_student = None
             best_confidence = -1.0
+            best_attempt_confidence = 0.0
             for student_row, stored_encodings in cache:
                 if not stored_encodings:
                     continue
                 if not student_row.get("is_active"):
                     continue
-                is_match, conf = student_service.face_engine.verify_identity(live_img, stored_encodings)
+                is_match, conf = student_service.face_engine.verify_live_embedding(live_emb, stored_encodings)
+                best_attempt_confidence = max(best_attempt_confidence, float(conf))
                 if is_match and conf > best_confidence:
                     best_student = student_row
                     best_confidence = float(conf)
             if not best_student:
-                return jsonify({"error": "Identity verification failed. No matching student found."}), 400
+                return jsonify({
+                    "error": "No biometric match found among enrolled students. Recapture in better lighting or enter Student ID for 1:1 verification.",
+                    "confidence": float(best_attempt_confidence),
+                }), 400
             student = best_student
             confidence = best_confidence
 
@@ -2406,6 +2587,9 @@ def verify_class_attendance():
 def class_attendance_logs_page():
     admin_id = int(session.get("admin_id"))
     course_code = str(request.args.get("course_code") or "").strip().upper()
+    page = max(1, request.args.get("page", default=1, type=int) or 1)
+    per_page = request.args.get("per_page", default=100, type=int) or 100
+    per_page = max(20, min(per_page, 300))
 
     where = []
     params = []
@@ -2423,6 +2607,18 @@ def class_attendance_logs_page():
                 rows=rows,
                 courses=courses,
                 selected_course=course_code,
+                pagination={
+                    "page": 1,
+                    "per_page": per_page,
+                    "total_count": 0,
+                    "total_pages": 1,
+                    "has_prev": False,
+                    "has_next": False,
+                    "prev_page": 1,
+                    "next_page": 1,
+                    "start_item": 0,
+                    "end_item": 0,
+                },
             )
         if course_code:
             where.append("UPPER(ca.course_code) = %s")
@@ -2437,6 +2633,22 @@ def class_attendance_logs_page():
         )
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    total_row = db_utils.fetch_one(
+        f"""
+        SELECT COUNT(*) AS c
+        FROM class_attendances ca
+        INNER JOIN students s ON s.id = ca.student_id
+        LEFT JOIN admins a ON a.id = ca.lecturer_id
+        {where_sql}
+        """,
+        tuple(params),
+    )
+    total_count = int((total_row or {}).get("c") or 0)
+    total_pages = max(1, math.ceil(total_count / per_page)) if total_count else 1
+    page = min(page, total_pages)
+    offset = (page - 1) * per_page
+    page_params = list(params)
+    page_params.extend([int(per_page), int(offset)])
     rows = db_utils.fetch_all(
         f"""
         SELECT
@@ -2454,9 +2666,9 @@ def class_attendance_logs_page():
         LEFT JOIN admins a ON a.id = ca.lecturer_id
         {where_sql}
         ORDER BY ca.timestamp DESC
-        LIMIT 500
+        LIMIT %s OFFSET %s
         """,
-        tuple(params),
+        tuple(page_params),
     )
     return render_template(
         "attendance/class_logs.html",
@@ -2464,6 +2676,18 @@ def class_attendance_logs_page():
         rows=rows,
         courses=courses,
         selected_course=course_code,
+        pagination={
+            "page": page,
+            "per_page": per_page,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_prev": page > 1,
+            "has_next": page < total_pages,
+            "prev_page": page - 1,
+            "next_page": page + 1,
+            "start_item": (offset + 1) if total_count else 0,
+            "end_item": min(offset + per_page, total_count),
+        },
     )
 
 
@@ -2706,6 +2930,21 @@ def exam_scheduler_page():
         halls=halls,
         courses=_build_scheduler_course_catalog(),
     )
+
+
+@web_bp.get("/admin/exam-scheduler/hall-usage")
+@roles_required("admin", "super_admin")
+def exam_scheduler_hall_usage():
+    period_id = request.args.get("period_id")
+    period = _get_exam_period_by_id(period_id) if period_id else None
+    usage = _build_hall_usage_summary(period=period)
+    return jsonify(
+        {
+            "period_id": int(period["id"]) if period and period.get("id") is not None else None,
+            "period_name": period.get("period_name") if period else None,
+            "hall_usage": usage,
+        }
+    ), 200
 
 
 @web_bp.post("/admin/exam-periods/<int:period_id>/invigilator-availability")
@@ -3252,32 +3491,43 @@ def generate_exam_schedule():
 
     for plan in slot_hall_plans:
         slot = plan["slot"]
-        plan_halls = [
-            entry["hall"]
-            for entry in plan["entries"]
-            if int(entry.get("expected_students") or 0) > 0
-        ]
-        if not plan_halls:
+        planned_by_hall = {}
+        hall_meta = {}
+        for entry in plan["entries"]:
+            expected = int(entry.get("expected_students") or 0)
+            if expected <= 0:
+                continue
+            hall = entry["hall"]
+            hall_id = int(hall["id"])
+            planned_by_hall[hall_id] = planned_by_hall.get(hall_id, 0) + expected
+            hall_meta[hall_id] = hall
+
+        if not planned_by_hall:
             continue
-        for hall in plan_halls:
-            overlap = db_utils.fetch_one(
+
+        for hall_id, planned_expected in planned_by_hall.items():
+            hall = hall_meta[hall_id]
+            overlaps = db_utils.fetch_all(
                 """
-                SELECT id, session_name
+                SELECT id, session_name, expected_students
                 FROM examination_sessions
                 WHERE hall_id = %s
                   AND start_time < %s
                   AND end_time > %s
                 ORDER BY start_time ASC
-                LIMIT 1
                 """,
-                (int(hall["id"]), slot["end_time"], slot["start_time"]),
+                (hall_id, slot["end_time"], slot["start_time"]),
             )
-            if overlap:
+            existing_expected = sum(int(r.get("expected_students") or 0) for r in overlaps)
+            hall_capacity = int(hall.get("capacity") or 0)
+            if hall_capacity > 0 and (existing_expected + int(planned_expected)) > hall_capacity:
+                overlap_names = ", ".join(str(r.get("session_name") or "N/A") for r in overlaps[:3])
                 return jsonify(
                     {
                         "error": (
-                            f"Hall conflict on {slot['exam_day'].isoformat()} for {hall['name']}: "
-                            f"{overlap.get('session_name')} already overlaps this slot."
+                            f"Hall capacity conflict on {slot['exam_day'].isoformat()} for {hall['name']}: "
+                            f"existing overlap load {existing_expected}, new load {int(planned_expected)}, "
+                            f"capacity {hall_capacity}. Overlapping sessions: {overlap_names or 'N/A'}."
                         )
                     }
                 ), 409
@@ -3441,12 +3691,13 @@ def generate_exam_schedule():
 def login_audit_logs_page():
     user_type = str(request.args.get("user_type") or "").strip().lower()
     q = str(request.args.get("q") or "").strip()
-    limit_raw = request.args.get("limit", "500")
+    page = max(1, request.args.get("page", default=1, type=int) or 1)
+    per_page_raw = request.args.get("per_page", "100")
     try:
-        limit = int(limit_raw)
+        per_page = int(per_page_raw)
     except (TypeError, ValueError):
-        limit = 500
-    limit = max(1, min(limit, 2000))
+        per_page = 100
+    per_page = max(20, min(per_page, 300))
 
     where = []
     params = []
@@ -3465,7 +3716,38 @@ def login_audit_logs_page():
         params.extend([query, query, query])
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-    params.append(limit)
+    total_row = db_utils.fetch_one(
+        f"""
+        SELECT COUNT(*) AS c
+        FROM login_audit_logs lal
+        {where_sql}
+        """,
+        tuple(params),
+    )
+    total_count = int((total_row or {}).get("c") or 0)
+    total_pages = max(1, math.ceil(total_count / per_page)) if total_count else 1
+    page = min(page, total_pages)
+    offset = (page - 1) * per_page
+
+    page_items = []
+    if total_pages <= 9:
+        page_items = list(range(1, total_pages + 1))
+    else:
+        # Always show first/last and a focused window around current page.
+        window_start = max(1, page - 2)
+        window_end = min(total_pages, page + 2)
+        page_items.append(1)
+        if window_start > 2:
+            page_items.append(None)
+        for p in range(window_start, window_end + 1):
+            if p not in (1, total_pages):
+                page_items.append(p)
+        if window_end < total_pages - 1:
+            page_items.append(None)
+        page_items.append(total_pages)
+
+    page_params = list(params)
+    page_params.extend([int(per_page), int(offset)])
     rows = db_utils.fetch_all(
         f"""
         SELECT
@@ -3482,9 +3764,9 @@ def login_audit_logs_page():
         FROM login_audit_logs lal
         {where_sql}
         ORDER BY lal.login_at DESC
-        LIMIT %s
+        LIMIT %s OFFSET %s
         """,
-        tuple(params),
+        tuple(page_params),
     )
     return render_template(
         "admin/login_audit_logs.html",
@@ -3493,7 +3775,22 @@ def login_audit_logs_page():
         filters={
             "user_type": user_type,
             "q": q,
-            "limit": limit,
+            "per_page": per_page,
+        },
+        pagination={
+            "page": page,
+            "per_page": per_page,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_prev": page > 1,
+            "has_next": page < total_pages,
+            "prev_page": page - 1,
+            "next_page": page + 1,
+            "first_page": 1,
+            "last_page": total_pages,
+            "page_items": page_items,
+            "start_item": (offset + 1) if total_count else 0,
+            "end_item": min(offset + per_page, total_count),
         },
     )
 
@@ -3507,11 +3804,45 @@ def all_sessions_page():
         if not active_period:
             abort(403, description="Sessions are unavailable. No active exam/midsem period is open.")
 
+    page = max(1, int(request.args.get("page", 1) or 1))
+    per_page = int(request.args.get("per_page", 25) or 25)
+    per_page = max(10, min(per_page, 50))
+
     sessions = db_utils.fetch_all(
         """
-        SELECT id, session_name, course_code, venue, start_time, end_time, is_active
-        FROM examination_sessions
-        ORDER BY start_time DESC
+        SELECT
+            es.id,
+            es.session_name,
+            es.course_code,
+            es.venue,
+            es.start_time,
+            es.end_time,
+            es.is_active,
+            (
+                SELECT COUNT(DISTINCT x.student_id)
+                FROM (
+                    SELECT r.student_id
+                    FROM exam_registrations r
+                    WHERE r.session_id = es.id
+                    UNION
+                    SELECT scr.student_id
+                    FROM student_course_registrations scr
+                    WHERE UPPER(scr.course_code) = UPPER(es.course_code)
+                ) x
+            ) AS registered_count,
+            (
+                SELECT COUNT(*)
+                FROM attendances a
+                WHERE a.session_id = es.id
+            ) AS verified_count,
+            (
+                SELECT COUNT(*)
+                FROM session_invigilators si
+                WHERE si.session_id = es.id
+                  AND si.is_active = TRUE
+            ) AS invigilator_count
+        FROM examination_sessions es
+        ORDER BY es.start_time DESC
         """
     )
     now = datetime.utcnow()
@@ -3541,7 +3872,278 @@ def all_sessions_page():
             s for s in sessions
             if str(s.get("course_code") or "").strip().upper() in assigned_codes
         ]
-    return render_template("exams/sessions_list.html", title="All Sessions", sessions=sessions)
+
+    def _sort_key(row):
+        start = row.get("start_time") or datetime.min
+        return (start, int(row.get("id") or 0))
+
+    sessions = sorted(sessions, key=_sort_key, reverse=True)
+
+    total_count = len(sessions)
+    total_pages = max(1, math.ceil(total_count / per_page)) if total_count else 1
+    page = min(page, total_pages)
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    page_rows = sessions[start_idx:end_idx]
+
+    return render_template(
+        "exams/sessions_list.html",
+        title="All Sessions",
+        sessions=page_rows,
+        pagination={
+            "page": page,
+            "per_page": per_page,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_prev": page > 1,
+            "has_next": page < total_pages,
+            "prev_page": page - 1,
+            "next_page": page + 1,
+            "start_item": (start_idx + 1) if total_count else 0,
+            "end_item": min(end_idx, total_count),
+        },
+    )
+
+
+@web_bp.get("/exams/sessions/<int:session_id>")
+@web_bp.get("/exams/sessions/<int:session_id>", endpoint="session_activity_page")
+@roles_required("invigilator", "lecturer", "admin", "super_admin")
+def session_activity_page(session_id):
+    if _has_role("lecturer", "invigilator"):
+        active_period = _get_current_open_exam_period()
+        if not active_period:
+            abort(403, description="Session activities are unavailable. No active exam/midsem period is open.")
+
+    session_row = db_utils.fetch_one(
+        """
+        SELECT
+            es.id,
+            es.session_name,
+            es.course_code,
+            es.venue,
+            es.start_time,
+            es.end_time,
+            es.is_active,
+            es.hall_id
+        FROM examination_sessions es
+        WHERE es.id = %s
+        LIMIT 1
+        """,
+        (int(session_id),),
+    )
+    if not session_row:
+        abort(404, description="Session not found")
+
+    if _has_role("lecturer"):
+        assigned_codes = set(_lecturer_course_codes(int(session.get("admin_id"))))
+        course_code = str(session_row.get("course_code") or "").strip().upper()
+        if course_code not in assigned_codes:
+            abort(403, description="You do not have access to this session.")
+
+    summary = db_utils.fetch_one(
+        """
+        SELECT
+            (
+                SELECT COUNT(DISTINCT x.student_id)
+                FROM (
+                    SELECT r.student_id
+                    FROM exam_registrations r
+                    WHERE r.session_id = es.id
+                    UNION
+                    SELECT scr.student_id
+                    FROM student_course_registrations scr
+                    WHERE UPPER(scr.course_code) = UPPER(es.course_code)
+                ) x
+            ) AS registered_count,
+            (
+                SELECT COUNT(*)
+                FROM attendances a
+                WHERE a.session_id = es.id
+            ) AS attendance_count,
+            (
+                SELECT COUNT(*)
+                FROM verification_logs vl
+                WHERE vl.session_id = es.id
+            ) AS verification_total,
+            (
+                SELECT COUNT(*)
+                FROM verification_logs vl
+                WHERE vl.session_id = es.id
+                  AND vl.outcome = 'SUCCESS'
+            ) AS verification_success,
+            (
+                SELECT COUNT(*)
+                FROM verification_logs vl
+                WHERE vl.session_id = es.id
+                  AND vl.outcome <> 'SUCCESS'
+            ) AS verification_fail,
+            (
+                SELECT COUNT(*)
+                FROM session_invigilators si
+                WHERE si.session_id = es.id
+                  AND si.is_active = TRUE
+            ) AS invigilator_count
+        FROM examination_sessions es
+        WHERE es.id = %s
+        LIMIT 1
+        """,
+        (int(session_id),),
+    ) or {}
+
+    invigilators = db_utils.fetch_all(
+        """
+        SELECT
+            a.id,
+            a.full_name,
+            a.email,
+            a.username,
+            si.assigned_at
+        FROM session_invigilators si
+        INNER JOIN admins a ON a.id = si.invigilator_id
+        WHERE si.session_id = %s
+          AND si.is_active = TRUE
+        ORDER BY a.full_name ASC
+        """,
+        (int(session_id),),
+    )
+
+    verification_rows = db_utils.fetch_all(
+        """
+        SELECT
+            vl.id,
+            vl.timestamp,
+            vl.outcome,
+            vl.reason,
+            vl.confidence,
+            vl.claimed_student_id,
+            s.student_id AS index_no,
+            s.first_name,
+            s.last_name,
+            st.name AS station_name
+        FROM verification_logs vl
+        LEFT JOIN students s ON s.id = vl.student_id
+        LEFT JOIN exam_stations st ON st.id = vl.station_id
+        WHERE vl.session_id = %s
+        ORDER BY vl.timestamp DESC
+        LIMIT 500
+        """,
+        (int(session_id),),
+    )
+
+    attendance_rows = db_utils.fetch_all(
+        """
+        SELECT
+            a.id,
+            a.timestamp,
+            a.verification_confidence,
+            s.student_id AS index_no,
+            s.first_name,
+            s.last_name
+        FROM attendances a
+        LEFT JOIN students s ON s.id = a.student_id
+        WHERE a.session_id = %s
+        ORDER BY a.timestamp DESC
+        LIMIT 500
+        """,
+        (int(session_id),),
+    )
+
+    pause_rows = db_utils.fetch_all(
+        """
+        SELECT
+            pc.id,
+            pc.pause_type,
+            pc.reason,
+            pc.started_at,
+            pc.resumed_at,
+            pc.pause_seconds,
+            hs.name AS hall_name,
+            a1.full_name AS started_by_name,
+            a2.full_name AS resumed_by_name
+        FROM verification_pause_controls pc
+        LEFT JOIN exam_halls hs ON hs.id = pc.hall_id
+        LEFT JOIN admins a1 ON a1.id = pc.started_by
+        LEFT JOIN admins a2 ON a2.id = pc.resumed_by
+        WHERE pc.session_id = %s
+        ORDER BY pc.started_at DESC
+        LIMIT 500
+        """,
+        (int(session_id),),
+    )
+
+    activities = []
+    for row in verification_rows:
+        student_name = f"{row.get('first_name') or ''} {row.get('last_name') or ''}".strip() or "Unknown Student"
+        outcome = str(row.get("outcome") or "FAIL").upper()
+        activities.append(
+            {
+                "timestamp": row.get("timestamp"),
+                "event_type": "verification",
+                "badge": "SUCCESS" if outcome == "SUCCESS" else "FAIL",
+                "title": f"Verification {outcome}",
+                "details": (
+                    f"{student_name} ({row.get('index_no') or row.get('claimed_student_id') or 'N/A'})"
+                ),
+                "meta": (
+                    f"Confidence: {float(row.get('confidence') or 0.0):.2f}"
+                    + (f" | Station: {row.get('station_name')}" if row.get("station_name") else "")
+                    + (f" | Reason: {row.get('reason')}" if row.get("reason") else "")
+                ),
+            }
+        )
+
+    for row in attendance_rows:
+        student_name = f"{row.get('first_name') or ''} {row.get('last_name') or ''}".strip() or "Unknown Student"
+        activities.append(
+            {
+                "timestamp": row.get("timestamp"),
+                "event_type": "attendance",
+                "badge": "ATTENDANCE",
+                "title": "Attendance recorded",
+                "details": f"{student_name} ({row.get('index_no') or 'N/A'})",
+                "meta": f"Verification confidence: {float(row.get('verification_confidence') or 0.0):.2f}",
+            }
+        )
+
+    for row in pause_rows:
+        scope = row.get("hall_name") or "Session-wide"
+        started_by = row.get("started_by_name") or "Unknown"
+        activities.append(
+            {
+                "timestamp": row.get("started_at"),
+                "event_type": "pause_start",
+                "badge": "PAUSE",
+                "title": f"{str(row.get('pause_type') or 'verification').capitalize()} pause started",
+                "details": f"Scope: {scope}",
+                "meta": f"By: {started_by}" + (f" | Reason: {row.get('reason')}" if row.get("reason") else ""),
+            }
+        )
+        if row.get("resumed_at"):
+            resumed_by = row.get("resumed_by_name") or "Unknown"
+            pause_secs = int(row.get("pause_seconds") or 0)
+            activities.append(
+                {
+                    "timestamp": row.get("resumed_at"),
+                    "event_type": "pause_resume",
+                    "badge": "RESUME",
+                    "title": f"{str(row.get('pause_type') or 'verification').capitalize()} pause resumed",
+                    "details": f"Scope: {scope}",
+                    "meta": f"By: {resumed_by} | Duration: {pause_secs}s",
+                }
+            )
+
+    activities.sort(key=lambda x: x.get("timestamp") or datetime.min, reverse=True)
+
+    return render_template(
+        "exams/session_activity.html",
+        title="Session Activity",
+        session_row=session_row,
+        summary=summary,
+        invigilators=invigilators,
+        verification_rows=verification_rows,
+        pause_rows=pause_rows,
+        activities=activities,
+    )
 
 
 @web_bp.post("/admin/sessions/<int:session_id>/start")
@@ -3767,24 +4369,27 @@ def create_session_setup():
     if not paper_group_code:
         return jsonify({"error": "Could not determine paper_group_code"}), 400
 
-    overlap = db_utils.fetch_one(
+    overlaps = db_utils.fetch_all(
         """
-        SELECT id, session_name, start_time, end_time
+        SELECT id, session_name, expected_students
         FROM examination_sessions
         WHERE hall_id = %s
           AND start_time < %s
           AND end_time > %s
         ORDER BY start_time ASC
-        LIMIT 1
         """,
         (hall_id, end_time, start_time),
     )
-    if overlap:
+    existing_expected = sum(int(r.get("expected_students") or 0) for r in overlaps)
+    if hall_capacity > 0 and (existing_expected + expected_students) > hall_capacity:
+        overlap_names = ", ".join(str(r.get("session_name") or "N/A") for r in overlaps[:3])
         return jsonify(
             {
                 "error": (
-                    f"Hall '{hall.get('name')}' is already scheduled for "
-                    f"'{overlap.get('session_name')}' during that time window."
+                    f"Hall capacity conflict in '{hall.get('name')}'. "
+                    f"Overlapping sessions currently use {existing_expected} seats; "
+                    f"this session adds {expected_students}, exceeding capacity {hall_capacity}. "
+                    f"Overlapping sessions: {overlap_names or 'N/A'}."
                 )
             }
         ), 409
@@ -4056,21 +4661,31 @@ def session_setup_reschedule(session_id):
     if hall_capacity > 0 and expected_students > hall_capacity:
         return jsonify({"error": f"Expected students ({expected_students}) exceed hall capacity ({hall_capacity})."}), 400
 
-    overlap = db_utils.fetch_one(
+    overlaps = db_utils.fetch_all(
         """
-        SELECT id, session_name
+        SELECT id, session_name, expected_students
         FROM examination_sessions
         WHERE hall_id = %s
           AND id <> %s
           AND start_time < %s
           AND end_time > %s
         ORDER BY start_time ASC
-        LIMIT 1
         """,
         (hall_id, session_id, end_time, start_time),
     )
-    if overlap:
-        return jsonify({"error": f"Hall is already booked by '{overlap.get('session_name')}' in that time window."}), 409
+    existing_expected = sum(int(r.get("expected_students") or 0) for r in overlaps)
+    if hall_capacity > 0 and (existing_expected + expected_students) > hall_capacity:
+        overlap_names = ", ".join(str(r.get("session_name") or "N/A") for r in overlaps[:3])
+        return jsonify(
+            {
+                "error": (
+                    f"Hall capacity conflict in '{hall.get('name')}'. "
+                    f"Overlapping sessions currently use {existing_expected} seats; "
+                    f"this session would use {expected_students}, exceeding capacity {hall_capacity}. "
+                    f"Overlapping sessions: {overlap_names or 'N/A'}."
+                )
+            }
+        ), 409
 
     allow_file_upload = payload.get("allow_file_upload")
     if allow_file_upload is None:
@@ -5816,6 +6431,18 @@ def verify_student_biometric():
 
         student_service = _get_student_service()
         quality_ok, quality_msg = student_service.face_engine.validate_image_quality(live_img)
+        live_emb = student_service.face_engine.extract_live_embedding(live_img)
+        if live_emb is None:
+            return jsonify(
+                {
+                    "match": False,
+                    "confidence": 0.0,
+                    "quality_ok": bool(quality_ok),
+                    "quality_message": quality_msg,
+                    "student": None,
+                    "error": "No face detected in the image. Keep your full face centered and retry in better lighting.",
+                }
+            ), 200
         if student_identifier:
             student = student_service.get_student(student_identifier)
             if not student:
@@ -5825,7 +6452,7 @@ def verify_student_biometric():
             if not stored_encodings:
                 return jsonify({"error": "Student has no saved biometric templates"}), 400
 
-            is_match, confidence = student_service.face_engine.verify_identity(live_img, stored_encodings)
+            is_match, confidence = student_service.face_engine.verify_live_embedding(live_emb, stored_encodings)
             return jsonify(
                 {
                     "match": bool(is_match),
@@ -5846,7 +6473,7 @@ def verify_student_biometric():
         for student_row, stored_encodings in cache:
             if not stored_encodings:
                 continue
-            is_match, confidence = student_service.face_engine.verify_identity(live_img, stored_encodings)
+            is_match, confidence = student_service.face_engine.verify_live_embedding(live_emb, stored_encodings)
             conf = float(confidence)
             if conf > best_confidence:
                 best_confidence = conf
@@ -5872,7 +6499,7 @@ def verify_student_biometric():
                 "quality_ok": bool(quality_ok),
                 "quality_message": quality_msg,
                 "student": None,
-                "error": "No matching student found",
+                "error": "No biometric match found. Ensure good lighting, look straight at the camera, and try again or provide Student ID for direct verification.",
             }
         ), 200
     except Exception as exc:

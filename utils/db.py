@@ -14,6 +14,28 @@ except Exception:  # pragma: no cover - optional dependency
 _POOL = None
 
 
+def _is_conn_closed(conn):
+    try:
+        return bool(getattr(conn, "closed", False))
+    except Exception:
+        return True
+
+
+def _is_retryable_pg_connection_error(exc):
+    if not isinstance(exc, (psycopg2.OperationalError, psycopg2.InterfaceError)):
+        return False
+    message = str(exc).lower()
+    patterns = (
+        "server closed the connection unexpectedly",
+        "connection already closed",
+        "terminating connection",
+        "ssl connection has been closed unexpectedly",
+        "could not receive data from server",
+        "connection not open",
+    )
+    return any(p in message for p in patterns)
+
+
 def _get_dsn():
     dsn = get_database_dsn()
     backend = get_database_backend()
@@ -612,14 +634,24 @@ def get_conn():
     if backend == "postgresql":
         p = init_pool()
         conn = p.getconn()
+        close_conn = False
         try:
             yield conn
+            if _is_conn_closed(conn):
+                close_conn = True
+                raise psycopg2.InterfaceError("database connection closed before commit")
             conn.commit()
         except Exception:
-            conn.rollback()
+            if _is_conn_closed(conn):
+                close_conn = True
+            else:
+                try:
+                    conn.rollback()
+                except Exception:
+                    close_conn = True
             raise
         finally:
-            p.putconn(conn)
+            p.putconn(conn, close=close_conn or _is_conn_closed(conn))
         return
 
     conn = pyodbc.connect(_get_dsn(), timeout=5)
@@ -1105,19 +1137,27 @@ def init_db_schema():
         "CREATE INDEX IF NOT EXISTS idx_pause_controls_active ON verification_pause_controls (is_active);",
     ]
 
-    with db_cursor() as cur:
-        # Some managed Postgres setups enforce low statement_timeout values.
-        # Disable it for schema bootstrap so CREATE INDEX/TABLE can finish.
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
         try:
-            cur.execute("SET LOCAL statement_timeout = 0;")
-        except Exception:
-            pass
+            with db_cursor() as cur:
+                # Some managed Postgres setups enforce low statement_timeout values.
+                # Disable it for schema bootstrap so CREATE INDEX/TABLE can finish.
+                try:
+                    cur.execute("SET LOCAL statement_timeout = 0;")
+                except Exception:
+                    pass
 
-        for stmt in statements:
-            try:
-                cur.execute(stmt)
-            except psycopg2.errors.QueryCanceled as exc:
-                raise RuntimeError(
-                    "Database schema initialization timed out while executing: "
-                    f"{stmt.strip().splitlines()[0][:120]}"
-                ) from exc
+                for stmt in statements:
+                    try:
+                        cur.execute(stmt)
+                    except psycopg2.errors.QueryCanceled as exc:
+                        raise RuntimeError(
+                            "Database schema initialization timed out while executing: "
+                            f"{stmt.strip().splitlines()[0][:120]}"
+                        ) from exc
+            return
+        except Exception as exc:
+            if attempt < max_attempts and _is_retryable_pg_connection_error(exc):
+                continue
+            raise

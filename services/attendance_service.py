@@ -1,6 +1,8 @@
 """Attendance tracking service"""
 from datetime import datetime, timezone
 import logging
+import os
+from time import perf_counter
 
 from services.student_service import StudentService
 from utils.face_recognition_engine import FaceRecognitionEngine
@@ -15,10 +17,100 @@ class AttendanceService:
     def __init__(self):
         self.face_engine = FaceRecognitionEngine()
         self.student_service = StudentService()
+        self._session_cache = {}
+        self._invigilator_cache = {}
+        self._invigilator_assignment_cache = {}
+        self._registered_students_cache = {}
+        self._session_cache_ttl = float(os.getenv("VERIFY_CACHE_SESSION_TTL_SEC", "5"))
+        self._invigilator_cache_ttl = float(os.getenv("VERIFY_CACHE_INVIGILATOR_TTL_SEC", "20"))
+        self._assignment_cache_ttl = float(os.getenv("VERIFY_CACHE_ASSIGNMENT_TTL_SEC", "15"))
+        self._registered_cache_ttl = float(os.getenv("VERIFY_CACHE_REGISTERED_TTL_SEC", "20"))
+        self._timing_log_enabled = str(os.getenv("VERIFY_TIMING_LOG", "true")).strip().lower() in {"1", "true", "yes"}
 
     @staticmethod
     def _fmt_dt(value):
         return value.isoformat() if value else None
+
+    @staticmethod
+    def _cache_get(cache, key):
+        row = cache.get(key)
+        if not row:
+            return None
+        expires_at, value = row
+        if datetime.utcnow().timestamp() >= float(expires_at):
+            cache.pop(key, None)
+            return None
+        return value
+
+    @staticmethod
+    def _cache_set(cache, key, value, ttl_seconds):
+        cache[key] = (datetime.utcnow().timestamp() + max(0.1, float(ttl_seconds)), value)
+
+    def _invalidate_session_caches(self, session_id=None):
+        if session_id is None:
+            self._session_cache.clear()
+            self._invigilator_assignment_cache.clear()
+            self._registered_students_cache.clear()
+            return
+        try:
+            sid = int(session_id)
+        except Exception:
+            sid = session_id
+        self._session_cache.pop(sid, None)
+        for k in list(self._invigilator_assignment_cache.keys()):
+            if isinstance(k, tuple) and k and k[0] == sid:
+                self._invigilator_assignment_cache.pop(k, None)
+        for k in list(self._registered_students_cache.keys()):
+            if isinstance(k, tuple) and k and k[0] == sid:
+                self._registered_students_cache.pop(k, None)
+
+    def _get_session_cached(self, session_id):
+        try:
+            sid = int(session_id)
+        except Exception:
+            sid = session_id
+        cached = self._cache_get(self._session_cache, sid)
+        if cached is not None:
+            return dict(cached)
+        row = self._get_session(sid)
+        self._cache_set(self._session_cache, sid, dict(row) if row else None, self._session_cache_ttl)
+        return row
+
+    def _get_invigilator_cached(self, invigilator_id):
+        inv_id = int(invigilator_id)
+        cached = self._cache_get(self._invigilator_cache, inv_id)
+        if cached is not None:
+            return dict(cached) if cached else None
+        row = db_utils.fetch_one(
+            "SELECT id, role, is_active FROM admins WHERE id = %s",
+            (inv_id,),
+        )
+        self._cache_set(self._invigilator_cache, inv_id, dict(row) if row else None, self._invigilator_cache_ttl)
+        return row
+
+    def _get_registered_student_ids(self, session_id, course_code):
+        key = (int(session_id), str(course_code or "").strip().upper())
+        cached = self._cache_get(self._registered_students_cache, key)
+        if cached is not None:
+            return set(cached)
+        reg_rows = db_utils.fetch_all(
+            """
+            SELECT DISTINCT student_id
+            FROM (
+                SELECT r.student_id
+                FROM exam_registrations r
+                WHERE r.session_id = %s
+                UNION
+                SELECT scr.student_id
+                FROM student_course_registrations scr
+                WHERE UPPER(scr.course_code) = UPPER(%s)
+            ) eligible
+            """,
+            (int(session_id), str(course_code or "").strip()),
+        )
+        out = {r["student_id"] for r in reg_rows if r.get("student_id") is not None}
+        self._cache_set(self._registered_students_cache, key, set(out), self._registered_cache_ttl)
+        return out
 
     def _log_attempt(
         self,
@@ -75,9 +167,15 @@ class AttendanceService:
         """
         confidence = 0.0
         claimed = str(student_id) if student_id is not None else None
+        t0 = perf_counter()
+        timings = {}
+        def mark(name, start):
+            timings[name] = round((perf_counter() - start) * 1000.0, 2)
 
         try:
-            session = self._get_session(session_id)
+            t = perf_counter()
+            session = self._get_session_cached(session_id)
+            mark("session_lookup_ms", t)
             if not session:
                 self._log_attempt(
                     session_id, None, claimed, "FAIL", "Session not found", 0.0, ip_address, device_info, station_id
@@ -124,10 +222,9 @@ class AttendanceService:
                 )
                 return False, "Invigilator authentication required for this session", 0.0
 
-            invigilator = db_utils.fetch_one(
-                "SELECT id, role, is_active FROM admins WHERE id = %s",
-                (int(invigilator_id),)
-            )
+            t = perf_counter()
+            invigilator = self._get_invigilator_cached(invigilator_id)
+            mark("invigilator_lookup_ms", t)
             if not invigilator or not invigilator.get("is_active"):
                 self._log_attempt(
                     session_id,
@@ -145,7 +242,10 @@ class AttendanceService:
             invigilator_role = str(invigilator.get("role") or "").strip().lower()
             is_admin_bypass = invigilator_role in {"admin", "super_admin"}
 
-            if (not is_admin_bypass) and (not self.is_invigilator_assigned(session["id"], int(invigilator_id))):
+            t = perf_counter()
+            assigned = self.is_invigilator_assigned(session["id"], int(invigilator_id))
+            mark("invigilator_assignment_check_ms", t)
+            if (not is_admin_bypass) and (not assigned):
                 self._log_attempt(
                     session_id,
                     None,
@@ -167,7 +267,9 @@ class AttendanceService:
                     )
                     return False, f"Liveness check failed: {msg}", 0.0
 
+            t = perf_counter()
             live_emb = self.face_engine.extract_live_embedding(live_image)
+            mark("extract_live_embedding_ms", t)
             if live_emb is None:
                 self._log_attempt(
                     session_id, None, claimed, "FAIL", "No face detected in live image", 0.0, ip_address, device_info, station_id
@@ -234,6 +336,14 @@ class AttendanceService:
                     session_id, student["id"], claimed, "SUCCESS", "ok", confidence, ip_address, device_info, station_id
                 )
 
+                if self._timing_log_enabled:
+                    timings["total_ms"] = round((perf_counter() - t0) * 1000.0, 2)
+                    logger.info(
+                        "Verify timing | session=%s | mode=1:1 | total_ms=%s | %s",
+                        session_id,
+                        timings.get("total_ms"),
+                        timings,
+                    )
                 logger.info(f"Attendance recorded: Student {student.get('student_id')} for session {session_id}")
                 return True, self._attendance_to_dict(attendance, student=student, session=session), confidence
 
@@ -246,22 +356,9 @@ class AttendanceService:
             best_confidence = 0.0
             best_attempt_confidence = 0.0
 
-            reg_rows = db_utils.fetch_all(
-                """
-                SELECT DISTINCT student_id
-                FROM (
-                    SELECT r.student_id
-                    FROM exam_registrations r
-                    WHERE r.session_id = %s
-                    UNION
-                    SELECT scr.student_id
-                    FROM student_course_registrations scr
-                    WHERE UPPER(scr.course_code) = UPPER(%s)
-                ) eligible
-                """,
-                (session["id"], str(session.get("course_code") or "").strip()),
-            )
-            registered_student_ids = {r["student_id"] for r in reg_rows if r.get("student_id") is not None}
+            t = perf_counter()
+            registered_student_ids = self._get_registered_student_ids(session["id"], str(session.get("course_code") or "").strip())
+            mark("eligible_students_lookup_ms", t)
             if not registered_student_ids:
                 self._log_attempt(
                     session_id, None, claimed, "FAIL", "No registered students for session", 0.0, ip_address, device_info, station_id
@@ -318,6 +415,14 @@ class AttendanceService:
                 session_id, best_match["id"], None, "SUCCESS", "ok", best_confidence, ip_address, device_info, station_id
             )
 
+            if self._timing_log_enabled:
+                timings["total_ms"] = round((perf_counter() - t0) * 1000.0, 2)
+                logger.info(
+                    "Verify timing | session=%s | mode=1:N | total_ms=%s | %s",
+                    session_id,
+                    timings.get("total_ms"),
+                    timings,
+                )
             logger.info(f"Attendance recorded: Student {best_match.get('student_id')} for session {session_id}")
             return True, self._attendance_to_dict(attendance, student=best_match, session=session), best_confidence
 
@@ -501,6 +606,7 @@ class AttendanceService:
                 )
                 added += 1
 
+            self._invalidate_session_caches(session_id)
             return True, {
                 "session_id": session_id,
                 "added": added,
@@ -529,6 +635,7 @@ class AttendanceService:
                 "DELETE FROM exam_registrations WHERE id = %s",
                 (registration["id"],)
             )
+            self._invalidate_session_caches(session_id)
             return True, self._registration_to_dict(registration, student)
         except Exception as e:
             logger.error(f"Remove registration error: {str(e)}")
@@ -704,6 +811,7 @@ class AttendanceService:
                     """,
                     (session_id, inv_id, datetime.utcnow(), assigned_by)
                 )
+            self._invalidate_session_caches(session_id)
             return True, {
                 "session_id": session_id,
                 "assigned_invigilators": resolved,
@@ -731,6 +839,10 @@ class AttendanceService:
         return [self._session_invigilator_row_to_dict(a) for a in assignments]
 
     def is_invigilator_assigned(self, session_id, invigilator_id):
+        cache_key = (int(session_id), int(invigilator_id))
+        cached = self._cache_get(self._invigilator_assignment_cache, cache_key)
+        if cached is not None:
+            return bool(cached)
         row = db_utils.fetch_one(
             """
             SELECT id FROM session_invigilators
@@ -738,7 +850,9 @@ class AttendanceService:
             """,
             (session_id, invigilator_id)
         )
-        return row is not None
+        out = row is not None
+        self._cache_set(self._invigilator_assignment_cache, cache_key, out, self._assignment_cache_ttl)
+        return out
 
     def _get_session(self, session_id):
         return db_utils.fetch_one("SELECT * FROM examination_sessions WHERE id = %s", (session_id,))

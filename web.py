@@ -141,6 +141,72 @@ def _client_user_agent():
     return ua[:500] if ua else None
 
 
+def _current_actor_snapshot():
+    role = str(session.get("role") or "").strip().lower()
+    if session.get("admin_id"):
+        return {
+            "actor_type": role or "admin",
+            "actor_id": int(session.get("admin_id")),
+            "actor_username": str(session.get("username") or session.get("user_email") or "").strip() or None,
+            "actor_email": str(session.get("user_email") or "").strip().lower() or None,
+            "actor_full_name": str(session.get("full_name") or "").strip() or None,
+        }
+    if session.get("student_db_id"):
+        return {
+            "actor_type": role or "student",
+            "actor_id": int(session.get("student_db_id")),
+            "actor_username": str(session.get("student_id") or "").strip() or None,
+            "actor_email": None,
+            "actor_full_name": str(session.get("student_name") or "").strip() or None,
+        }
+    return {
+        "actor_type": "system",
+        "actor_id": None,
+        "actor_username": None,
+        "actor_email": None,
+        "actor_full_name": None,
+    }
+
+
+def _record_system_event(action, entity_type=None, entity_id=None, details=None, actor_override=None):
+    try:
+        actor = dict(_current_actor_snapshot())
+        if isinstance(actor_override, dict):
+            actor.update(actor_override)
+        action_value = str(action or "").strip()[:120] or "unknown"
+        details_text = None
+        if details is not None:
+            if isinstance(details, (dict, list)):
+                details_text = json.dumps(details, ensure_ascii=True, default=str)
+            else:
+                details_text = str(details)
+            details_text = details_text[:12000]
+        db_utils.execute(
+            """
+            INSERT INTO system_event_logs (
+                actor_type, actor_id, actor_username, actor_email, actor_full_name,
+                action, entity_type, entity_id, details, ip_address, user_agent
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                actor.get("actor_type") or "system",
+                actor.get("actor_id"),
+                actor.get("actor_username"),
+                actor.get("actor_email"),
+                actor.get("actor_full_name"),
+                action_value,
+                (str(entity_type).strip()[:80] if entity_type else None),
+                (str(entity_id).strip()[:80] if entity_id is not None else None),
+                details_text,
+                _client_ip(),
+                _client_user_agent(),
+            ),
+        )
+    except Exception as exc:
+        logger.warning(f"Failed to record system event ({action}): {exc}")
+
+
 def _record_login_event(user_type, user_id, username=None, email=None, full_name=None):
     payload = (
         str(user_type or "").strip().lower(),
@@ -1169,6 +1235,8 @@ def inject_template_helpers():
         "web.exam_scheduler_page": "/admin/exam-scheduler",
         "web.add_lecturer_page": "/admin/lecturers/new",
         "web.add_invigilator_page": "/admin/lecturers/new",
+        "web.lecturers_manage_page": "/admin/lecturers/manage",
+        "web.event_logs_page": "/admin/audit/events",
         "web.system_status_page": "/admin/system-status",
         "web.login_audit_logs_page": "/admin/audit/login-logs",
         "web.logout_page": "/logout",
@@ -2800,6 +2868,18 @@ def save_exam_period():
             """,
             (period_name, period_type, start_date, end_date, is_active, admin_id),
         )
+        _record_system_event(
+            "exam_period.created",
+            entity_type="exam_period",
+            entity_id=(row or {}).get("id"),
+            details={
+                "period_name": period_name,
+                "period_type": period_type,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "is_active": bool(is_active),
+            },
+        )
         return jsonify({"message": "Exam period created", "period": row}), 201
 
     try:
@@ -2821,6 +2901,18 @@ def save_exam_period():
     )
     if not row:
         return jsonify({"error": "Exam period not found"}), 404
+    _record_system_event(
+        "exam_period.updated",
+        entity_type="exam_period",
+        entity_id=(row or {}).get("id"),
+        details={
+            "period_name": period_name,
+            "period_type": period_type,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "is_active": bool(is_active),
+        },
+    )
     return jsonify({"message": "Exam period updated", "period": row}), 200
 
 
@@ -2842,6 +2934,12 @@ def toggle_exam_period(period_id):
     )
     if not row:
         return jsonify({"error": "Exam period not found"}), 404
+    _record_system_event(
+        "exam_period.toggled",
+        entity_type="exam_period",
+        entity_id=(row or {}).get("id"),
+        details={"is_active": bool(is_active)},
+    )
     return jsonify({"message": "Exam period updated", "period": row}), 200
 
 
@@ -3795,6 +3893,114 @@ def login_audit_logs_page():
     )
 
 
+@web_bp.get("/admin/audit/events")
+@web_bp.get("/admin/audit/events", endpoint="event_logs_page")
+@roles_required("admin", "super_admin")
+def event_logs_page():
+    actor_type = str(request.args.get("actor_type") or "").strip().lower()
+    action = str(request.args.get("action") or "").strip().lower()
+    entity_type = str(request.args.get("entity_type") or "").strip().lower()
+    q = str(request.args.get("q") or "").strip()
+    page = max(1, request.args.get("page", default=1, type=int) or 1)
+    per_page_raw = request.args.get("per_page", "100")
+    try:
+        per_page = int(per_page_raw)
+    except (TypeError, ValueError):
+        per_page = 100
+    per_page = max(20, min(per_page, 300))
+
+    where = []
+    params = []
+    if actor_type:
+        where.append("LOWER(COALESCE(sel.actor_type, '')) = %s")
+        params.append(actor_type)
+    if action:
+        where.append("LOWER(COALESCE(sel.action, '')) LIKE %s")
+        params.append(f"%{action}%")
+    if entity_type:
+        where.append("LOWER(COALESCE(sel.entity_type, '')) = %s")
+        params.append(entity_type)
+    if q:
+        q_like = f"%{q.lower()}%"
+        where.append(
+            "("
+            "LOWER(COALESCE(sel.actor_username, '')) LIKE %s OR "
+            "LOWER(COALESCE(sel.actor_email, '')) LIKE %s OR "
+            "LOWER(COALESCE(sel.actor_full_name, '')) LIKE %s OR "
+            "LOWER(COALESCE(sel.action, '')) LIKE %s OR "
+            "LOWER(COALESCE(sel.entity_type, '')) LIKE %s OR "
+            "LOWER(COALESCE(sel.entity_id, '')) LIKE %s OR "
+            "LOWER(COALESCE(sel.details, '')) LIKE %s"
+            ")"
+        )
+        params.extend([q_like, q_like, q_like, q_like, q_like, q_like, q_like])
+
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    total_row = db_utils.fetch_one(
+        f"""
+        SELECT COUNT(*) AS c
+        FROM system_event_logs sel
+        {where_sql}
+        """,
+        tuple(params),
+    )
+    total_count = int((total_row or {}).get("c") or 0)
+    total_pages = max(1, math.ceil(total_count / per_page)) if total_count else 1
+    page = min(page, total_pages)
+    offset = (page - 1) * per_page
+
+    page_params = list(params)
+    page_params.extend([int(per_page), int(offset)])
+    rows = db_utils.fetch_all(
+        f"""
+        SELECT
+            sel.id,
+            sel.actor_type,
+            sel.actor_id,
+            sel.actor_username,
+            sel.actor_email,
+            sel.actor_full_name,
+            sel.action,
+            sel.entity_type,
+            sel.entity_id,
+            sel.details,
+            sel.ip_address,
+            sel.user_agent,
+            sel.created_at
+        FROM system_event_logs sel
+        {where_sql}
+        ORDER BY sel.created_at DESC, sel.id DESC
+        LIMIT %s OFFSET %s
+        """,
+        tuple(page_params),
+    )
+
+    return render_template(
+        "admin/event_logs.html",
+        title="Event Logs",
+        rows=rows,
+        filters={
+            "actor_type": actor_type,
+            "action": action,
+            "entity_type": entity_type,
+            "q": q,
+            "per_page": per_page,
+        },
+        pagination={
+            "page": page,
+            "per_page": per_page,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_prev": page > 1,
+            "has_next": page < total_pages,
+            "prev_page": page - 1,
+            "next_page": page + 1,
+            "start_item": (offset + 1) if total_count else 0,
+            "end_item": min(offset + per_page, total_count),
+        },
+    )
+
+
 @web_bp.get("/exams/sessions")
 @web_bp.get("/exams/sessions", endpoint="all_sessions_page")
 @roles_required("invigilator", "lecturer", "admin", "super_admin")
@@ -4176,6 +4382,12 @@ def start_session_web(session_id):
         """,
         (effective_start, session_id),
     )
+    _record_system_event(
+        "exam_session.started",
+        entity_type="exam_session",
+        entity_id=session_id,
+        details={"effective_start": effective_start.isoformat() if effective_start else None},
+    )
     return jsonify({"message": "Session started", "session": updated}), 200
 
 
@@ -4204,6 +4416,12 @@ def end_session_web(session_id):
         RETURNING id, session_name, course_code, venue, start_time, end_time, is_active
         """,
         (effective_end, session_id),
+    )
+    _record_system_event(
+        "exam_session.ended",
+        entity_type="exam_session",
+        entity_id=session_id,
+        details={"effective_end": effective_end.isoformat() if effective_end else None},
     )
     return jsonify({"message": "Session ended", "session": updated}), 200
 
@@ -4462,6 +4680,24 @@ def create_session_setup():
                 (created["id"], inv_id, admin_id),
             )
 
+    _record_system_event(
+        "exam_session.created",
+        entity_type="exam_session",
+        entity_id=(created or {}).get("id"),
+        details={
+            "session_name": valid_session_name.get("course_title") or session_name,
+            "course_code": course_row.get("course_code"),
+            "paper_group_code": paper_group_code,
+            "hall_id": hall.get("id"),
+            "hall_name": hall.get("name"),
+            "expected_students": expected_students,
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "allow_file_upload": bool(allow_file_upload),
+            "papers_count": len(papers) if isinstance(papers, list) else 0,
+            "requested_invigilators_count": len(inv_ids),
+        },
+    )
     return jsonify({"message": "Session created", "session": created}), 201
 
 
@@ -4512,6 +4748,12 @@ def create_exam_hall():
         """,
         (name, capacity),
     )
+    _record_system_event(
+        "exam_hall.saved",
+        entity_type="exam_hall",
+        entity_id=(row or {}).get("id"),
+        details={"name": name, "capacity": capacity, "is_active": True},
+    )
     return jsonify({"message": "Hall saved successfully", "hall": row}), 200
 
 
@@ -4555,6 +4797,16 @@ def update_exam_hall(hall_id):
     )
     if not row:
         return jsonify({"error": "Hall not found"}), 404
+    _record_system_event(
+        "exam_hall.updated",
+        entity_type="exam_hall",
+        entity_id=(row or {}).get("id"),
+        details={
+            "name": row.get("name"),
+            "capacity": row.get("capacity"),
+            "is_active": bool(row.get("is_active")),
+        },
+    )
     return jsonify({"message": "Hall updated", "hall": row}), 200
 
 
@@ -4717,6 +4969,19 @@ def session_setup_reschedule(session_id):
             session_id,
         ),
     )
+    _record_system_event(
+        "exam_session.rescheduled",
+        entity_type="exam_session",
+        entity_id=(updated or {}).get("id") or session_id,
+        details={
+            "hall_id": hall_id,
+            "hall_name": hall.get("name"),
+            "expected_students": expected_students,
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "allow_file_upload": bool(allow_file_upload),
+        },
+    )
     return jsonify({"message": "Session rescheduled. It remains inactive until you start it.", "session": updated}), 200
 
 
@@ -4745,6 +5010,12 @@ def session_setup_save_papers(session_id):
             "INSERT INTO exam_papers (session_id, paper_code, paper_title) VALUES (%s, %s, %s)",
             (session_id, code, title),
         )
+    _record_system_event(
+        "exam_session.papers_updated",
+        entity_type="exam_session",
+        entity_id=session_id,
+        details={"papers_count": len(papers)},
+    )
     return jsonify({"message": "Papers saved"}), 200
 
 
@@ -4786,6 +5057,12 @@ def session_setup_save_invigilators(session_id):
             """,
             (session_id, inv_id, admin_id),
         )
+    _record_system_event(
+        "exam_session.invigilators_updated",
+        entity_type="exam_session",
+        entity_id=session_id,
+        details={"assigned_invigilator_ids": valid_ids, "assigned_count": len(valid_ids)},
+    )
     return jsonify({"message": "Invigilators saved", "assigned_count": len(valid_ids)}), 200
 
 
@@ -6018,6 +6295,17 @@ def assign_lecturer_course():
         """,
         (lecturer_id, course_code, course_title),
     )
+    _record_system_event(
+        "lecturer_course.assigned",
+        entity_type="lecturer_course",
+        entity_id=(row or {}).get("id"),
+        details={
+            "lecturer_id": lecturer_id,
+            "course_code": course_code,
+            "course_title": course_title,
+            "is_active": True,
+        },
+    )
     return jsonify({"message": "Course assigned to lecturer", "mapping": row}), 200
 
 
@@ -6049,6 +6337,18 @@ def create_lecturer_account():
         RETURNING id, username, email, full_name, profile_photo, role, is_active, must_change_password, created_at
         """,
         (username, email, full_name, profile_photo, generate_password_hash(temporary_password)),
+    )
+    _record_system_event(
+        "lecturer.created",
+        entity_type="lecturer",
+        entity_id=(row or {}).get("id"),
+        details={
+            "username": username,
+            "email": email,
+            "full_name": full_name,
+            "is_active": True,
+            "source": "admin_api",
+        },
     )
     return jsonify(
         {
@@ -6263,6 +6563,16 @@ def reset_lecturer_password(lecturer_id):
     }
     if temporary_password:
         response["temporary_password"] = temporary_password
+    _record_system_event(
+        "lecturer.password_reset",
+        entity_type="lecturer",
+        entity_id=lecturer_id,
+        details={
+            "lecturer_username": lecturer.get("username"),
+            "lecturer_email": lecturer.get("email"),
+            "custom_password_supplied": bool(new_password),
+        },
+    )
     return jsonify(response), 200
 
 
@@ -6348,6 +6658,17 @@ def update_lecturer_account(lecturer_id):
         """,
         tuple(params),
     )
+    _record_system_event(
+        "lecturer.updated",
+        entity_type="lecturer",
+        entity_id=(updated or {}).get("id") or lecturer_id,
+        details={
+            "updated_fields": fields,
+            "is_active": bool((updated or {}).get("is_active")) if updated else None,
+            "username": (updated or {}).get("username") if updated else username,
+            "email": (updated or {}).get("email") if updated else email,
+        },
+    )
     return jsonify({"message": "Lecturer updated successfully", "lecturer": updated}), 200
 
 
@@ -6365,6 +6686,16 @@ def remove_lecturer_course(mapping_id):
     )
     if not row:
         return jsonify({"error": "Mapping not found"}), 404
+    _record_system_event(
+        "lecturer_course.deactivated",
+        entity_type="lecturer_course",
+        entity_id=(row or {}).get("id"),
+        details={
+            "lecturer_id": row.get("lecturer_id"),
+            "course_code": row.get("course_code"),
+            "is_active": bool(row.get("is_active")),
+        },
+    )
     return jsonify({"message": "Lecturer course mapping deactivated", "mapping": row}), 200
 
 
@@ -6684,6 +7015,86 @@ def reset_student_password(student_id):
     except Exception as exc:
         return jsonify({"error": f"Password reset failed: {exc}"}), 500
 
+@web_bp.get("/admin/lecturers/manage")
+@web_bp.get("/admin/lecturers/manage", endpoint="lecturers_manage_page")
+@admin_required
+def lecturers_manage_page():
+    q = str(request.args.get("q") or "").strip()
+    status = str(request.args.get("status") or "active").strip().lower()
+    if status not in {"active", "inactive", "all"}:
+        status = "active"
+    page = max(1, request.args.get("page", default=1, type=int) or 1)
+    per_page_raw = request.args.get("per_page", "24")
+    try:
+        per_page = int(per_page_raw)
+    except (TypeError, ValueError):
+        per_page = 24
+    per_page = max(12, min(per_page, 96))
+
+    where = ["LOWER(role) = 'lecturer'"]
+    params = []
+    if status == "active":
+        where.append("is_active = TRUE")
+    elif status == "inactive":
+        where.append("is_active = FALSE")
+    if q:
+        query = f"%{q.lower()}%"
+        where.append(
+            "("
+            "LOWER(COALESCE(full_name, '')) LIKE %s OR "
+            "LOWER(COALESCE(email, '')) LIKE %s OR "
+            "LOWER(COALESCE(username, '')) LIKE %s"
+            ")"
+        )
+        params.extend([query, query, query])
+    where_sql = " AND ".join(where)
+
+    total_row = db_utils.fetch_one(
+        f"""
+        SELECT COUNT(*) AS c
+        FROM admins
+        WHERE {where_sql}
+        """,
+        tuple(params),
+    )
+    total_count = int((total_row or {}).get("c") or 0)
+    total_pages = max(1, math.ceil(total_count / per_page)) if total_count else 1
+    page = min(page, total_pages)
+    offset = (page - 1) * per_page
+
+    rows = db_utils.fetch_all(
+        f"""
+        SELECT
+            id, username, email, full_name, profile_photo, role, is_active,
+            must_change_password, created_at, last_login
+        FROM admins
+        WHERE {where_sql}
+        ORDER BY full_name ASC, id ASC
+        LIMIT %s OFFSET %s
+        """,
+        tuple(list(params) + [int(per_page), int(offset)]),
+    )
+
+    return render_template(
+        "admin/lecturers_manage.html",
+        title="Lecturer Profiles",
+        lecturers=rows,
+        filters={"q": q, "status": status, "per_page": per_page},
+        pagination={
+            "page": page,
+            "per_page": per_page,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_prev": page > 1,
+            "has_next": page < total_pages,
+            "prev_page": page - 1,
+            "next_page": page + 1,
+            "start_item": (offset + 1) if total_count else 0,
+            "end_item": min(offset + per_page, total_count),
+        },
+    )
+
+
 @web_bp.get("/admin/lecturers/new")
 @web_bp.get("/admin/lecturers/new", endpoint="add_lecturer_page")
 @web_bp.get("/admin/invigilators/new", endpoint="add_invigilator_page")
@@ -6731,6 +7142,18 @@ def create_lecturer_web():
         RETURNING id, username, email, full_name, profile_photo, role, is_active, must_change_password, created_at
         """,
         (username, email, full_name, profile_photo, generate_password_hash(temporary_password)),
+    )
+    _record_system_event(
+        "lecturer.created",
+        entity_type="lecturer",
+        entity_id=(created or {}).get("id"),
+        details={
+            "username": username,
+            "email": email,
+            "full_name": full_name,
+            "is_active": True,
+            "source": "web_form",
+        },
     )
     return jsonify(
         {

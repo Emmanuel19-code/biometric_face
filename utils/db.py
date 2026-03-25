@@ -177,6 +177,40 @@ def _init_sqlserver_schema():
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_login_audit_user_type_id' AND object_id = OBJECT_ID('login_audit_logs')) CREATE INDEX idx_login_audit_user_type_id ON login_audit_logs(user_type, user_id);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_login_audit_login_at' AND object_id = OBJECT_ID('login_audit_logs')) CREATE INDEX idx_login_audit_login_at ON login_audit_logs(login_at DESC);",
         """
+        IF OBJECT_ID('system_event_logs', 'U') IS NULL
+        CREATE TABLE system_event_logs (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            actor_type NVARCHAR(30) NOT NULL,
+            actor_id INT NULL,
+            actor_username NVARCHAR(120) NULL,
+            actor_email NVARCHAR(160) NULL,
+            actor_full_name NVARCHAR(200) NULL,
+            action NVARCHAR(120) NOT NULL,
+            entity_type NVARCHAR(80) NULL,
+            entity_id NVARCHAR(80) NULL,
+            details NVARCHAR(MAX) NULL,
+            ip_address NVARCHAR(64) NULL,
+            user_agent NVARCHAR(500) NULL,
+            created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+        );
+        """,
+        "IF COL_LENGTH('system_event_logs', 'actor_type') IS NULL ALTER TABLE system_event_logs ADD actor_type NVARCHAR(30) NOT NULL CONSTRAINT DF_system_event_logs_actor_type DEFAULT 'system';",
+        "IF COL_LENGTH('system_event_logs', 'actor_id') IS NULL ALTER TABLE system_event_logs ADD actor_id INT NULL;",
+        "IF COL_LENGTH('system_event_logs', 'actor_username') IS NULL ALTER TABLE system_event_logs ADD actor_username NVARCHAR(120) NULL;",
+        "IF COL_LENGTH('system_event_logs', 'actor_email') IS NULL ALTER TABLE system_event_logs ADD actor_email NVARCHAR(160) NULL;",
+        "IF COL_LENGTH('system_event_logs', 'actor_full_name') IS NULL ALTER TABLE system_event_logs ADD actor_full_name NVARCHAR(200) NULL;",
+        "IF COL_LENGTH('system_event_logs', 'action') IS NULL ALTER TABLE system_event_logs ADD action NVARCHAR(120) NOT NULL CONSTRAINT DF_system_event_logs_action DEFAULT 'unknown';",
+        "IF COL_LENGTH('system_event_logs', 'entity_type') IS NULL ALTER TABLE system_event_logs ADD entity_type NVARCHAR(80) NULL;",
+        "IF COL_LENGTH('system_event_logs', 'entity_id') IS NULL ALTER TABLE system_event_logs ADD entity_id NVARCHAR(80) NULL;",
+        "IF COL_LENGTH('system_event_logs', 'details') IS NULL ALTER TABLE system_event_logs ADD details NVARCHAR(MAX) NULL;",
+        "IF COL_LENGTH('system_event_logs', 'ip_address') IS NULL ALTER TABLE system_event_logs ADD ip_address NVARCHAR(64) NULL;",
+        "IF COL_LENGTH('system_event_logs', 'user_agent') IS NULL ALTER TABLE system_event_logs ADD user_agent NVARCHAR(500) NULL;",
+        "IF COL_LENGTH('system_event_logs', 'created_at') IS NULL ALTER TABLE system_event_logs ADD created_at DATETIME2 NOT NULL CONSTRAINT DF_system_event_logs_created_at DEFAULT SYSUTCDATETIME();",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_system_event_logs_created_at' AND object_id=OBJECT_ID('system_event_logs')) CREATE INDEX idx_system_event_logs_created_at ON system_event_logs(created_at DESC);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_system_event_logs_action' AND object_id=OBJECT_ID('system_event_logs')) CREATE INDEX idx_system_event_logs_action ON system_event_logs(action);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_system_event_logs_actor' AND object_id=OBJECT_ID('system_event_logs')) CREATE INDEX idx_system_event_logs_actor ON system_event_logs(actor_type, actor_id);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_system_event_logs_entity' AND object_id=OBJECT_ID('system_event_logs')) CREATE INDEX idx_system_event_logs_entity ON system_event_logs(entity_type, entity_id);",
+        """
         IF OBJECT_ID('students', 'U') IS NULL
         CREATE TABLE students (
             id INT IDENTITY(1,1) PRIMARY KEY,
@@ -782,6 +816,39 @@ def init_db_schema():
         "ALTER TABLE login_audit_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR(500);",
         "CREATE INDEX IF NOT EXISTS idx_login_audit_user_type_id ON login_audit_logs (user_type, user_id);",
         "CREATE INDEX IF NOT EXISTS idx_login_audit_login_at ON login_audit_logs (login_at DESC);",
+        """
+        CREATE TABLE IF NOT EXISTS system_event_logs (
+            id SERIAL PRIMARY KEY,
+            actor_type VARCHAR(30) NOT NULL,
+            actor_id INTEGER NULL,
+            actor_username VARCHAR(120),
+            actor_email VARCHAR(160),
+            actor_full_name VARCHAR(200),
+            action VARCHAR(120) NOT NULL,
+            entity_type VARCHAR(80),
+            entity_id VARCHAR(80),
+            details TEXT,
+            ip_address VARCHAR(64),
+            user_agent VARCHAR(500),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS actor_type VARCHAR(30) NOT NULL DEFAULT 'system';",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS actor_id INTEGER;",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS actor_username VARCHAR(120);",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS actor_email VARCHAR(160);",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS actor_full_name VARCHAR(200);",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS action VARCHAR(120) NOT NULL DEFAULT 'unknown';",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS entity_type VARCHAR(80);",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS entity_id VARCHAR(80);",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS details TEXT;",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(64);",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR(500);",
+        "ALTER TABLE system_event_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;",
+        "CREATE INDEX IF NOT EXISTS idx_system_event_logs_created_at ON system_event_logs (created_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_system_event_logs_action ON system_event_logs (action);",
+        "CREATE INDEX IF NOT EXISTS idx_system_event_logs_actor ON system_event_logs (actor_type, actor_id);",
+        "CREATE INDEX IF NOT EXISTS idx_system_event_logs_entity ON system_event_logs (entity_type, entity_id);",
         """
         CREATE TABLE IF NOT EXISTS students (
             id SERIAL PRIMARY KEY,

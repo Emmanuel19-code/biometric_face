@@ -10,6 +10,7 @@ import base64
 import io
 import logging
 from datetime import datetime
+from time import perf_counter
 
 logger = logging.getLogger(__name__)
 
@@ -47,19 +48,30 @@ def verify_attendance():
     - Optional frames[] + challenge for liveness
     """
     try:
+        t0 = perf_counter()
+        timings = {}
+        def mark(name, start):
+            timings[name] = round((perf_counter() - start) * 1000.0, 2)
+
+        t = perf_counter()
         raw_key = (request.headers.get("X-Station-Key") or "").strip()
         ok, station_or_err = verify_station(raw_key, request.remote_addr)
+        mark("station_auth_ms", t)
         if not ok:
             return jsonify({"error": station_or_err}), 401
         station = station_or_err
 
+        t = perf_counter()
         data = request.get_json() or {}
+        mark("request_json_parse_ms", t)
         if 'live_image' not in data or 'session_id' not in data or 'nonce' not in data:
             return jsonify({'error': 'live_image, session_id, and nonce required'}), 400
 
         # Validate nonce
         nonce = str(data["nonce"]).strip()
+        t = perf_counter()
         ch = db_utils.fetch_one("SELECT * FROM verification_challenges WHERE nonce = %s", (nonce,))
+        mark("nonce_lookup_ms", t)
         if not ch:
             return jsonify({"error": "Invalid nonce"}), 400
         if ch["station_id"] != station["id"]:
@@ -71,10 +83,12 @@ def verify_attendance():
         if datetime.utcnow() > ch["expires_at"]:
             return jsonify({"error": "Nonce expired"}), 400
 
+        t = perf_counter()
         session_row = db_utils.fetch_one(
             "SELECT id, hall_id FROM examination_sessions WHERE id = %s",
             (int(data["session_id"]),),
         )
+        mark("session_lookup_ms", t)
         if not session_row:
             return jsonify({"error": "Session not found"}), 404
         effective_hall_id = station.get("hall_id")
@@ -82,7 +96,9 @@ def verify_attendance():
             effective_hall_id = session_row.get("hall_id")
         if effective_hall_id is not None:
             effective_hall_id = int(effective_hall_id)
+        t = perf_counter()
         pause_state = pause_controls.get_pause_state(int(data["session_id"]), effective_hall_id)
+        mark("pause_state_ms", t)
         verification_pause = pause_state.get("verification_pause")
         if verification_pause:
             reason = str(verification_pause.get("reason") or "").strip()
@@ -90,21 +106,27 @@ def verify_attendance():
             return jsonify({"error": f"Verification is currently paused for this scope{detail}"}), 423
 
         # Mark nonce used (one-time)
+        t = perf_counter()
         db_utils.execute(
             "UPDATE verification_challenges SET used_at = %s WHERE id = %s",
             (datetime.utcnow(), ch["id"])
         )
+        mark("nonce_mark_used_ms", t)
 
+        t = perf_counter()
         live_image = decode_image(data['live_image'])
+        mark("decode_live_image_ms", t)
         if not live_image:
             return jsonify({'error': 'Invalid image data'}), 400
 
         frames = []
         if isinstance(data.get("frames"), list):
+            t = perf_counter()
             for f in data["frames"][:5]:
                 img = decode_image(f)
                 if img:
                     frames.append(img)
+            mark("decode_frames_ms", t)
 
         challenge = data.get("challenge")  # should match challenge endpoint response
 
@@ -118,6 +140,7 @@ def verify_attendance():
             return jsonify({'error': 'Invalid invigilator identity'}), 400
 
         attendance_service = _get_attendance_service()
+        t = perf_counter()
         success, result, confidence = attendance_service.verify_and_record_attendance(
             live_image=live_image,
             session_id=data['session_id'],
@@ -128,6 +151,15 @@ def verify_attendance():
             challenge=challenge,
             station_id=station["id"],
             invigilator_id=invigilator_id
+        )
+        mark("service_verify_ms", t)
+        timings["total_ms"] = round((perf_counter() - t0) * 1000.0, 2)
+        logger.info(
+            "API verify timing | session=%s | success=%s | total_ms=%s | %s",
+            data.get("session_id"),
+            bool(success),
+            timings.get("total_ms"),
+            timings,
         )
 
         if success:

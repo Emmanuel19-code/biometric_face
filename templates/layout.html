@@ -69,6 +69,8 @@
       'web.exam_scheduler_page': '/admin/exam-scheduler',
       'web.add_lecturer_page': '/admin/lecturers/new',
       'web.add_invigilator_page': '/admin/lecturers/new',
+      'web.lecturers_manage_page': '/admin/lecturers/manage',
+      'web.event_logs_page': '/admin/audit/events',
       'web.departments_page': '/admin/departments/manage',
       'web.system_status_page': '/admin/system-status',
       'web.login_audit_logs_page': '/admin/audit/login-logs',
@@ -164,6 +166,8 @@
             {{ nav_link('web.exam_scheduler_page', 'Exam Scheduler', 'W') }}
             {{ nav_link('web.lecturer_course_assignments_page', 'Lecturer Courses', 'R') }}
             {{ nav_link('web.add_lecturer_page', 'Add Lecturer', 'A') }}
+            {{ nav_link('web.lecturers_manage_page', 'Lecturer Profiles', 'U') }}
+            {{ nav_link('web.event_logs_page', 'Event Logs', 'V') }}
             {{ nav_link('web.login_audit_logs_page', 'Login Audit Logs', 'G') }}
             {{ nav_link('web.system_status_page', 'System Status', 'Z') }}
           {% endif %}

@@ -1,0 +1,128 @@
+{% extends "layout.html" %}
+{% set title = "Event Logs" %}
+{% block content %}
+
+<div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+  <div>
+    <div class="text-sm font-semibold">Event Logs</div>
+    <div class="text-sm text-slate-600 mt-1">Track user actions and system changes.</div>
+    <div class="text-xs text-slate-500 mt-2">
+      Showing {{ pagination.start_item }} - {{ pagination.end_item }} of {{ pagination.total_count }} event(s).
+    </div>
+  </div>
+
+  <form method="GET" action="{{ url_for('web.event_logs_page') }}" class="mt-5 grid grid-cols-1 md:grid-cols-5 gap-2">
+    <div>
+      <label class="text-xs text-slate-500">Actor Type</label>
+      <input name="actor_type" value="{{ filters.actor_type or '' }}" placeholder="admin, student..."
+             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">Action</label>
+      <input name="action" value="{{ filters.action or '' }}" placeholder="session.created"
+             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">Entity Type</label>
+      <input name="entity_type" value="{{ filters.entity_type or '' }}" placeholder="session, hall..."
+             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">Search</label>
+      <input name="q" value="{{ filters.q or '' }}" placeholder="actor, details, id..."
+             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">Rows Per Page</label>
+      <select name="per_page" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="20" {% if filters.per_page == 20 %}selected{% endif %}>20</option>
+        <option value="50" {% if filters.per_page == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if filters.per_page == 100 %}selected{% endif %}>100</option>
+        <option value="200" {% if filters.per_page == 200 %}selected{% endif %}>200</option>
+        <option value="300" {% if filters.per_page == 300 %}selected{% endif %}>300</option>
+      </select>
+      <input type="hidden" name="page" value="1">
+    </div>
+    <div class="md:col-span-5 flex flex-wrap gap-2">
+      <button class="rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-semibold hover:bg-brand-700" type="submit">
+        Apply Filters
+      </button>
+      <a href="{{ url_for('web.event_logs_page') }}"
+         class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50">
+        Clear
+      </a>
+    </div>
+  </form>
+
+  {% if rows %}
+  <div class="mt-5 overflow-x-auto">
+    <table class="w-full min-w-[1200px] text-sm">
+      <thead class="bg-slate-50 text-slate-600 border-y border-slate-200">
+        <tr>
+          <th class="text-left py-2 px-3">Time</th>
+          <th class="text-left py-2 px-3">Actor</th>
+          <th class="text-left py-2 px-3">Action</th>
+          <th class="text-left py-2 px-3">Entity</th>
+          <th class="text-left py-2 px-3">Details</th>
+          <th class="text-left py-2 px-3">IP</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y bg-white">
+        {% for r in rows %}
+        <tr>
+          <td class="py-2 px-3 whitespace-nowrap">{{ r.created_at.strftime('%Y-%m-%d %H:%M:%S') if r.created_at else 'N/A' }}</td>
+          <td class="py-2 px-3">
+            <div class="font-medium">{{ r.actor_full_name or r.actor_username or 'System' }}</div>
+            <div class="text-xs text-slate-500">
+              {{ (r.actor_type or 'system')|lower }}
+              {% if r.actor_id is not none %}#{{ r.actor_id }}{% endif %}
+              {% if r.actor_email %} | {{ r.actor_email }}{% endif %}
+            </div>
+          </td>
+          <td class="py-2 px-3">
+            <span class="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">{{ r.action or '-' }}</span>
+          </td>
+          <td class="py-2 px-3">
+            <div>{{ r.entity_type or '-' }}</div>
+            <div class="text-xs text-slate-500">{{ r.entity_id or '' }}</div>
+          </td>
+          <td class="py-2 px-3 text-xs text-slate-600 max-w-[520px]">
+            <pre class="whitespace-pre-wrap break-words">{{ r.details or '-' }}</pre>
+          </td>
+          <td class="py-2 px-3 text-xs text-slate-500">
+            <div>{{ r.ip_address or '-' }}</div>
+            <div class="mt-1">{{ r.user_agent or '' }}</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="mt-5 rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">
+    No event logs found.
+  </div>
+  {% endif %}
+
+  {% if pagination.total_pages > 1 %}
+  <div class="mt-4 flex items-center justify-between gap-2">
+    <div class="text-xs text-slate-500">Page {{ pagination.page }} / {{ pagination.total_pages }}</div>
+    <div class="flex items-center gap-2">
+      {% if pagination.has_prev %}
+      <a href="{{ url_for('web.event_logs_page', page=pagination.prev_page, per_page=pagination.per_page, actor_type=filters.actor_type, action=filters.action, entity_type=filters.entity_type, q=filters.q) }}"
+         class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50">Previous</a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Previous</span>
+      {% endif %}
+      {% if pagination.has_next %}
+      <a href="{{ url_for('web.event_logs_page', page=pagination.next_page, per_page=pagination.per_page, actor_type=filters.actor_type, action=filters.action, entity_type=filters.entity_type, q=filters.q) }}"
+         class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50">Next</a>
+      {% else %}
+      <span class="rounded-lg border border-slate-100 px-3 py-1 text-xs text-slate-400">Next</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

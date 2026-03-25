@@ -34,22 +34,20 @@
     </div>
 
     <div class="rounded-2xl border border-slate-200 p-4">
-      <div class="text-xs text-slate-500">Quick Filter (Level)</div>
-      <div class="mt-2 flex flex-wrap gap-2">
-        <button type="button" data-filter="all"
-                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">All</button>
-        <button type="button" data-filter="100"
-                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">100</button>
-        <button type="button" data-filter="200"
-                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">200</button>
-        <button type="button" data-filter="300"
-                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">300</button>
-        <button type="button" data-filter="400"
-                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">400</button>
-        <button type="button" data-filter="500"
-                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">500</button>
-        <button type="button" data-filter="600"
-                class="filterBtn px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50">600</button>
+      <div class="text-xs text-slate-500">Filters</div>
+      <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <select id="filterCategory"
+                class="rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+          <option value="">All categories</option>
+        </select>
+        <select id="filterProgram"
+                class="rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+          <option value="">All programs</option>
+        </select>
+        <select id="filterLevel"
+                class="rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+          <option value="">All levels</option>
+        </select>
       </div>
     </div>
   </div>
@@ -158,7 +156,9 @@
 
 <script>
   let students = [];
-  let activeLevelFilter = "all";
+  let activeLevelFilter = "";
+  let activeCategoryFilter = "";
+  let activeProgramFilter = "";
   let selectedStudentDbId = null;
   let selectedStudentIndex = null;
   const studentMap = new Map();
@@ -168,6 +168,9 @@
   const searchBox = document.getElementById("searchBox");
   const countShown = document.getElementById("countShown");
   const btnExport = document.getElementById("btnExport");
+  const filterCategory = document.getElementById("filterCategory");
+  const filterProgram = document.getElementById("filterProgram");
+  const filterLevel = document.getElementById("filterLevel");
   const studentModal = document.getElementById("studentModal");
   const studentModalOverlay = document.getElementById("studentModalOverlay");
   const studentModalClose = document.getElementById("studentModalClose");
@@ -233,9 +236,13 @@
       last_name: lastName,
       name: `${firstName} ${lastName}`.trim(),
       index: row.student_id || "",
-      level: row.year_level || "Unknown",
+      level: row.level_name || row.year_level || "Unknown",
+      level_name: row.level_name || row.year_level || "Unknown",
+      category: row.study_category || "undergraduate",
       faculty: row.department || "Unassigned Department",
-      programme: row.course || "N/A",
+      programme: row.program_name || row.course || "N/A",
+      entry_cohort: row.entry_cohort ?? "",
+      expected_graduation_year: row.expected_graduation_year ?? "",
       email: row.email || "—",
       phone: row.phone || "—",
       is_active: row.is_active !== false,
@@ -248,10 +255,45 @@
   function applyFilters(data) {
     const q = normalize(searchBox.value);
     return data.filter((st) => {
-      if (activeLevelFilter !== "all" && normalizeLevel(st.level) !== activeLevelFilter) return false;
+      if (activeLevelFilter && normalize(st.level_name) !== normalize(activeLevelFilter)) return false;
+      if (activeCategoryFilter && normalize(st.category) !== normalize(activeCategoryFilter)) return false;
+      if (activeProgramFilter && normalize(st.programme) !== normalize(activeProgramFilter)) return false;
       if (!q) return true;
-      const hay = [st.name, st.index, st.programme, st.faculty, st.level].map(normalize).join(" | ");
+      const hay = [st.name, st.index, st.programme, st.faculty, st.level_name, st.category].map(normalize).join(" | ");
       return hay.includes(q);
+    });
+  }
+
+  function refillFilterOptions() {
+    const categories = Array.from(new Set(students.map((s) => normalize(s.category)).filter(Boolean))).sort();
+    const programs = Array.from(new Set(students.map((s) => String(s.programme || "").trim()).filter(Boolean))).sort();
+    const levels = Array.from(new Set(students.map((s) => String(s.level_name || "").trim()).filter(Boolean))).sort((a, b) => sortLevelKey(a) - sortLevelKey(b));
+
+    filterCategory.innerHTML = '<option value="">All categories</option>';
+    categories.forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v.charAt(0).toUpperCase() + v.slice(1);
+      if (normalize(activeCategoryFilter) === v) opt.selected = true;
+      filterCategory.appendChild(opt);
+    });
+
+    filterProgram.innerHTML = '<option value="">All programs</option>';
+    programs.forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      if (normalize(activeProgramFilter) === normalize(v)) opt.selected = true;
+      filterProgram.appendChild(opt);
+    });
+
+    filterLevel.innerHTML = '<option value="">All levels</option>';
+    levels.forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      if (normalize(activeLevelFilter) === normalize(v)) opt.selected = true;
+      filterLevel.appendChild(opt);
     });
   }
 
@@ -407,7 +449,7 @@
     sdIndex.textContent = student.index || "—";
     sdDepartment.textContent = student.faculty || "—";
     sdProgramme.textContent = student.programme || "—";
-    sdLevel.textContent = student.level || "—";
+    sdLevel.textContent = student.level_name || student.level || "—";
     sdEmail.textContent = student.email || "—";
     sdPhone.textContent = student.phone || "—";
     sdBiometric.textContent = student.biometric_enrolled ? "Enrolled" : "Not enrolled";
@@ -425,7 +467,7 @@
     editPhone.value = (student.phone && student.phone !== "—") ? student.phone : "";
     editDepartment.value = (student.faculty && student.faculty !== "Unassigned Department") ? student.faculty : "";
     editCourse.value = (student.programme && student.programme !== "N/A") ? student.programme : "";
-    editLevel.value = student.level || "";
+    editLevel.value = student.level_name || student.level || "";
     editIsActive.checked = student.is_active !== false;
     studentModal.classList.remove("hidden");
   }
@@ -505,6 +547,9 @@
       department: editDepartment.value.trim(),
       course: editCourse.value.trim(),
       year_level: editLevel.value.trim(),
+      study_category: normalize(studentMap.get(String(selectedStudentIndex || ""))?.category || "undergraduate"),
+      program_name: editCourse.value.trim(),
+      level_name: editLevel.value.trim(),
       is_active: !!editIsActive.checked
     };
 
@@ -529,6 +574,7 @@
       const updated = toViewModel(body.student || {});
       studentMap.set(String(updated.index), updated);
       students = students.map((s) => String(s.index) === String(updated.index) ? updated : s);
+      refillFilterOptions();
       render();
       openStudentModal(updated);
       hideEditForm();
@@ -641,6 +687,7 @@
           students = (payload.students || []).map(toViewModel);
           studentMap.clear();
           students.forEach((s) => studentMap.set(String(s.index), s));
+          refillFilterOptions();
           loaded = true;
           if (students.length > 0 || endpoint.includes("active_only=false")) break;
         }
@@ -659,15 +706,17 @@
     }
   }
 
-  document.querySelectorAll(".filterBtn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      activeLevelFilter = btn.dataset.filter;
-      document.querySelectorAll(".filterBtn").forEach((b) => {
-        b.classList.remove("bg-slate-900", "text-white", "border-slate-900");
-      });
-      btn.classList.add("bg-slate-900", "text-white", "border-slate-900");
-      render();
-    });
+  filterCategory?.addEventListener("change", () => {
+    activeCategoryFilter = filterCategory.value;
+    render();
+  });
+  filterProgram?.addEventListener("change", () => {
+    activeProgramFilter = filterProgram.value;
+    render();
+  });
+  filterLevel?.addEventListener("change", () => {
+    activeLevelFilter = filterLevel.value;
+    render();
   });
 
   sortBy.addEventListener("change", render);
@@ -685,9 +734,9 @@
 
   btnExport.addEventListener("click", () => {
     const filtered = applySort(applyFilters(students));
-    const header = ["Name", "Index", "Level", "Department", "Programme", "Biometric"];
+    const header = ["Name", "Index", "Category", "Level", "Department", "Programme", "Biometric"];
     const rows = filtered.map((st) => [
-      st.name, st.index, st.level, st.faculty, st.programme, st.biometric_enrolled ? "Enrolled" : "Not Enrolled"
+      st.name, st.index, st.category, st.level_name, st.faculty, st.programme, st.biometric_enrolled ? "Enrolled" : "Not Enrolled"
     ]);
     const csv = [header, ...rows]
       .map((arr) => arr.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
@@ -704,7 +753,6 @@
     URL.revokeObjectURL(url);
   });
 
-  document.querySelector('.filterBtn[data-filter="all"]')?.classList.add("bg-slate-900", "text-white", "border-slate-900");
   loadStudents();
 </script>
 

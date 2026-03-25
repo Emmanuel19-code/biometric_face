@@ -51,8 +51,8 @@ class StudentService:
             """
             SELECT student_id
             FROM students
-            WHERE LOWER(course) = LOWER(%s)
-              AND LOWER(year_level) = LOWER(%s)
+            WHERE LOWER(COALESCE(program_name, course, '')) = LOWER(%s)
+              AND LOWER(COALESCE(level_name, year_level, '')) = LOWER(%s)
               AND registration_date >= %s
               AND registration_date < %s
             """,
@@ -75,8 +75,11 @@ class StudentService:
             (success, student_object or error_message)
         """
         try:
-            program_name = (student_data.get("course") or "").strip()
-            level_name = (student_data.get("year_level") or "").strip()
+            program_name = (student_data.get("program_name") or student_data.get("course") or "").strip()
+            level_name = (student_data.get("level_name") or student_data.get("year_level") or "").strip()
+            study_category = str(student_data.get("study_category") or "undergraduate").strip().lower()
+            if study_category not in {"undergraduate", "masters", "phd"}:
+                study_category = "undergraduate"
             if not program_name:
                 return False, "Program/course is required for automatic index generation"
             if not level_name:
@@ -112,8 +115,13 @@ class StudentService:
             student = db_utils.execute_returning(
                 """
                 INSERT INTO students
-                    (student_id, first_name, last_name, email, phone, department, course, year_level, face_encodings, profile_photo, admission_academic_year, date_of_birth, password_hash, must_change_password)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                    (
+                        student_id, first_name, last_name, email, phone, department,
+                        course, year_level, study_category, program_name, level_name,
+                        entry_cohort, expected_graduation_year,
+                        face_encodings, profile_photo, admission_academic_year, date_of_birth, password_hash, must_change_password
+                    )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
                 RETURNING *
                 """,
                 (
@@ -123,8 +131,13 @@ class StudentService:
                     student_data["email"],
                     student_data.get("phone"),
                     student_data.get("department"),
-                    student_data.get("course"),
-                    student_data.get("year_level"),
+                    program_name,
+                    level_name,
+                    study_category,
+                    program_name,
+                    level_name,
+                    student_data.get("entry_cohort"),
+                    student_data.get("expected_graduation_year"),
                     encrypted_encodings,
                     profile_photo,
                     student_data.get("admission_academic_year"),
@@ -174,7 +187,8 @@ class StudentService:
 
             allowed = {
                 "first_name", "last_name", "email", "phone",
-                "department", "course", "year_level", "is_active"
+                "department", "course", "year_level", "study_category",
+                "program_name", "level_name", "entry_cohort", "expected_graduation_year", "is_active"
             }
             fields = []
             params = []
@@ -263,6 +277,11 @@ class StudentService:
             "department": row.get("department"),
             "course": row.get("course"),
             "year_level": row.get("year_level"),
+            "study_category": row.get("study_category"),
+            "program_name": row.get("program_name") or row.get("course"),
+            "level_name": row.get("level_name") or row.get("year_level"),
+            "entry_cohort": row.get("entry_cohort"),
+            "expected_graduation_year": row.get("expected_graduation_year"),
             "profile_photo": row.get("profile_photo"),
             "admission_academic_year": row.get("admission_academic_year"),
             "date_of_birth": row.get("date_of_birth").isoformat() if row.get("date_of_birth") else None,

@@ -91,6 +91,19 @@
         <p class="mt-1 text-xs text-slate-500" id="errIndex">Generated using current year + program + level sequence.</p>
       </div>
 
+      <!-- Study category -->
+      <div>
+        <label class="text-sm font-medium">Study Category <span class="text-rose-600">*</span></label>
+        <select id="studyCategory" name="study_category" required
+                class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-brand-600/30">
+          <option value="">Select category</option>
+          <option value="undergraduate">Undergraduate</option>
+          <option value="masters">Masters</option>
+          <option value="phd">PhD</option>
+        </select>
+        <p class="mt-1 text-xs text-rose-600 hidden" id="errStudyCategory">Study category is required.</p>
+      </div>
+
       <!-- Programme -->
       <div>
         <label class="text-sm font-medium">Programme <span class="text-rose-600">*</span></label>
@@ -110,6 +123,20 @@
           <option>100</option><option>200</option><option>300</option><option>400</option><option>500</option><option>600</option>
         </select>
         <p class="mt-1 text-xs text-rose-600 hidden" id="errLevel">Level is required.</p>
+      </div>
+
+      <div>
+        <label class="text-sm font-medium">Entry Cohort</label>
+        <input id="entryCohort" name="entry_cohort" inputmode="numeric"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. 2025">
+      </div>
+
+      <div>
+        <label class="text-sm font-medium">Expected Graduation Year</label>
+        <input id="expectedGraduationYear" name="expected_graduation_year" inputmode="numeric"
+               class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-600/30"
+               placeholder="e.g. 2029">
       </div>
 
       <div>
@@ -203,7 +230,7 @@
       </div>
 
       <p class="md:col-span-2 text-xs text-slate-500 mt-1">
-        Required: First Name, Last Name, Programme, Level, Academic Year. Index number is generated automatically.
+        Required: First Name, Last Name, Study Category, Programme, Level, Academic Year. Index number is generated automatically.
       </p>
     </form>
   </div>
@@ -325,8 +352,11 @@
   const middleName = document.getElementById("middleName");
   const lastName = document.getElementById("lastName");
   const indexNo = document.getElementById("indexNo");
+  const studyCategory = document.getElementById("studyCategory");
   const programme = document.getElementById("programme");
   const level = document.getElementById("level");
+  const entryCohort = document.getElementById("entryCohort");
+  const expectedGraduationYear = document.getElementById("expectedGraduationYear");
   const academicYear = document.getElementById("academicYear");
   const dob = document.getElementById("dob");
   const email = document.getElementById("email");
@@ -334,6 +364,7 @@
 
   const errFirstName = document.getElementById("errFirstName");
   const errLastName = document.getElementById("errLastName");
+  const errStudyCategory = document.getElementById("errStudyCategory");
   const errProgramme = document.getElementById("errProgramme");
   const errLevel = document.getElementById("errLevel");
   const errAcademicYear = document.getElementById("errAcademicYear");
@@ -373,6 +404,33 @@
     saveBadge.textContent = text;
   }
 
+  const programMetaByName = {};
+
+  function levelsForCategory(category, durationYears = 4) {
+    const c = String(category || "").toLowerCase().trim();
+    if (c === "masters") return ["M1", "M2"];
+    if (c === "phd") {
+      const years = Math.max(3, Math.min(6, Number(durationYears) || 4));
+      return Array.from({ length: years }, (_, i) => `PHD${i + 1}`);
+    }
+    const years = Math.max(1, Math.min(10, Number(durationYears) || 4));
+    return Array.from({ length: years }, (_, i) => String((i + 1) * 100));
+  }
+
+  function refillLevelsFromSelection() {
+    const category = studyCategory.value.trim().toLowerCase();
+    const selectedProgram = programme.value.trim().toLowerCase();
+    const meta = programMetaByName[selectedProgram];
+    const levels = levelsForCategory(category, meta?.duration_years || 4);
+    level.innerHTML = '<option value="">Select level</option>';
+    levels.forEach((lvl) => {
+      const opt = document.createElement("option");
+      opt.value = lvl;
+      opt.textContent = lvl;
+      level.appendChild(opt);
+    });
+  }
+
   function validateRequired() {
     let ok = true;
     const firstOk = firstName.value.trim().length > 0;
@@ -382,6 +440,10 @@
     const lastOk = lastName.value.trim().length > 0;
     errLastName.classList.toggle("hidden", lastOk);
     ok = ok && lastOk;
+
+    const categoryOk = studyCategory.value.trim().length > 0;
+    errStudyCategory.classList.toggle("hidden", categoryOk);
+    ok = ok && categoryOk;
 
     const progOk = programme.value.trim().length > 0;
     errProgramme.classList.toggle("hidden", progOk);
@@ -427,13 +489,17 @@
 
   async function loadProgramsIntoSelect() {
     try {
-      const res = await fetch("/admin/programs");
+      const category = String(studyCategory.value || "").trim().toLowerCase();
+      const query = category ? `?study_category=${encodeURIComponent(category)}` : "";
+      const res = await fetch(`/admin/programs${query}`);
       const data = await res.json().catch(() => ({}));
       const programs = Array.isArray(data.programs) ? data.programs : [];
 
       programme.innerHTML = '<option value="">Select programme</option>';
+      Object.keys(programMetaByName).forEach((k) => delete programMetaByName[k]);
       if (!programs.length) {
-        setBadge("warn", "No programs found. Add programs first in Admin > Program Courses.");
+        setBadge("warn", "No programs found for this category. Add programs first in Admin > Program Setup.");
+        refillLevelsFromSelection();
         return;
       }
 
@@ -441,6 +507,8 @@
       programs.forEach((p) => {
         const opt = document.createElement("option");
         opt.value = p.program_name || "";
+        const metaKey = String(p.program_name || "").trim().toLowerCase();
+        if (metaKey) programMetaByName[metaKey] = p;
         if (p.is_active) {
           hasActive = true;
           opt.textContent = p.program_name || "";
@@ -453,9 +521,11 @@
       if (!hasActive) {
         setBadge("warn", "Programs exist but all are unavailable. Mark one available first.");
       }
+      refillLevelsFromSelection();
     } catch (error) {
       console.error(error);
       programme.innerHTML = '<option value="">Select programme</option>';
+      refillLevelsFromSelection();
       setBadge("bad", "Failed to load programs list.");
     }
   }
@@ -685,6 +755,11 @@
       phone: phone.value.trim(),
       course: programme.value.trim(),
       year_level: level.value.trim(),
+      study_category: studyCategory.value.trim().toLowerCase(),
+      program_name: programme.value.trim(),
+      level_name: level.value.trim(),
+      entry_cohort: entryCohort.value.trim(),
+      expected_graduation_year: expectedGraduationYear.value.trim(),
       admission_academic_year: academicYear.value.trim(),
       dob: dob.value.trim(),
       face_images: faceCaptures.map((x) => x.dataUrl)
@@ -718,6 +793,7 @@
       renderCapturesStrip();
       errFirstName.classList.add("hidden");
       errLastName.classList.add("hidden");
+      errStudyCategory.classList.add("hidden");
       errProgramme.classList.add("hidden");
       errLevel.classList.add("hidden");
       errAcademicYear.classList.add("hidden");
@@ -740,6 +816,7 @@
     renderCapturesStrip();
     errFirstName.classList.add("hidden");
     errLastName.classList.add("hidden");
+    errStudyCategory.classList.add("hidden");
     errProgramme.classList.add("hidden");
     errLevel.classList.add("hidden");
     errAcademicYear.classList.add("hidden");
@@ -766,12 +843,19 @@
     if (e.key === "Escape" && !reviewModal.classList.contains("hidden")) closeReviewModal();
   });
 
+  studyCategory.addEventListener("change", async () => {
+    programme.value = "";
+    await loadProgramsIntoSelect();
+  });
+  programme.addEventListener("change", refillLevelsFromSelection);
+
   (async () => {
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         alert("Camera API not supported in this browser.");
         return;
       }
+      studyCategory.value = "undergraduate";
       await loadProgramsIntoSelect();
       await loadAcademicYearStatus();
       await startCameraPreferBack();

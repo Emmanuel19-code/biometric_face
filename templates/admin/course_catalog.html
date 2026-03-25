@@ -15,6 +15,14 @@
                  placeholder="e.g. BSc Information Technology Management" required>
         </div>
         <div>
+          <label class="text-xs text-slate-500">Study Category</label>
+          <select id="studyCategoryInput" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+            <option value="undergraduate">Undergraduate</option>
+            <option value="masters">Masters</option>
+            <option value="phd">PhD</option>
+          </select>
+        </div>
+        <div>
           <label class="text-xs text-slate-500">Department</label>
           <select id="programDepartmentInput" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
             <option value="">Select department</option>
@@ -65,6 +73,7 @@
         <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
           <tr>
             <th class="text-left py-3 px-3">Program</th>
+            <th class="text-left py-3 px-3">Category</th>
             <th class="text-left py-3 px-3">Department</th>
             <th class="text-left py-3 px-3">Duration</th>
             <th class="text-left py-3 px-3">Semesters/Year</th>
@@ -73,7 +82,7 @@
           </tr>
         </thead>
         <tbody id="programTableBody" class="divide-y">
-          <tr><td colspan="6" class="py-6 text-center text-slate-500">Loading programs...</td></tr>
+          <tr><td colspan="7" class="py-6 text-center text-slate-500">Loading programs...</td></tr>
         </tbody>
       </table>
     </div>
@@ -108,6 +117,7 @@
     return `
       <tr>
         <td class="py-3 px-3">${escapeHtml(p.program_name || "")}</td>
+        <td class="py-3 px-3">${escapeHtml(p.study_category || "undergraduate")}</td>
         <td class="py-3 px-3">${escapeHtml(p.department_name || "Unassigned")}</td>
         <td class="py-3 px-3">${escapeHtml(p.duration_years || 4)} year(s)</td>
         <td class="py-3 px-3">${escapeHtml(p.semesters_per_year || 2)}</td>
@@ -139,12 +149,12 @@
   }
 
   async function loadPrograms() {
-    programTableBody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-500">Loading programs...</td></tr>';
+    programTableBody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">Loading programs...</td></tr>';
     const res = await fetch("/admin/programs");
     const data = await res.json().catch(() => ({}));
     const programs = Array.isArray(data.programs) ? data.programs : [];
     if (!programs.length) {
-      programTableBody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-500">No programs yet.</td></tr>';
+      programTableBody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">No programs yet.</td></tr>';
       return;
     }
     programTableBody.innerHTML = programs.map(rowHtml).join("");
@@ -154,6 +164,7 @@
     e.preventDefault();
     const payload = {
       program_name: document.getElementById("programNameInput").value.trim(),
+      study_category: document.getElementById("studyCategoryInput").value.trim().toLowerCase(),
       department_id: document.getElementById("programDepartmentInput").value.trim(),
       duration_years: document.getElementById("durationYearsInput").value.trim(),
       semesters_per_year: document.getElementById("semestersPerYearInput").value.trim(),

@@ -9,6 +9,16 @@
 
     <form id="addCourseForm" class="mt-4 space-y-3">
       <div>
+        <label class="text-xs text-slate-500">Study Category</label>
+        <select id="studyCategory" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+          <option value="">Select category</option>
+          <option value="undergraduate">Undergraduate</option>
+          <option value="masters">Masters</option>
+          <option value="phd">PhD</option>
+        </select>
+      </div>
+
+      <div>
         <label class="text-xs text-slate-500">Program</label>
         <select id="programName" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
           <option value="">Select program</option>
@@ -85,6 +95,7 @@
 <script>
   const form = document.getElementById("addCourseForm");
   const formMsg = document.getElementById("formMsg");
+  const studyCategory = document.getElementById("studyCategory");
   const programName = document.getElementById("programName");
   const levelName = document.getElementById("levelName");
   const semesterNo = document.getElementById("semesterNo");
@@ -105,6 +116,17 @@
     const out = [];
     for (let i = start; i <= end; i += step) out.push(i);
     return out;
+  }
+
+  function levelsForCategory(category, durationYears = 4) {
+    const c = String(category || "").trim().toLowerCase();
+    if (c === "masters") return ["M1", "M2"];
+    if (c === "phd") {
+      const years = Math.max(3, Math.min(6, Number(durationYears) || 4));
+      return Array.from({ length: years }, (_, i) => `PHD${i + 1}`);
+    }
+    const years = Math.max(1, Math.min(10, Number(durationYears) || 4));
+    return makeRange(1, years).map((n) => String(n * 100));
   }
 
   function setOptions(selectEl, values, placeholder) {
@@ -131,7 +153,7 @@
     }
     const duration = Number(meta.duration_years || 4);
     const semPerYear = Number(meta.semesters_per_year || 2);
-    const levels = makeRange(1, Math.max(1, duration)).map((n) => n * 100);
+    const levels = levelsForCategory(studyCategory.value, duration);
     const sems = makeRange(1, Math.max(1, semPerYear));
     setOptions(levelName, levels, "Select level");
     setOptions(semesterNo, sems, "Select semester");
@@ -154,7 +176,9 @@
   }
 
   async function loadPrograms() {
-    const res = await fetch("/admin/programs");
+    const category = String(studyCategory.value || "").trim().toLowerCase();
+    const query = category ? `?study_category=${encodeURIComponent(category)}` : "";
+    const res = await fetch(`/admin/programs${query}`);
     const body = await res.json().catch(() => ({}));
     const rows = Array.isArray(body.programs) ? body.programs : [];
     programName.innerHTML = '<option value="">Select program</option>';
@@ -174,12 +198,14 @@
   }
 
   async function loadProgramCourses() {
+    const category = String(studyCategory.value || "").trim().toLowerCase();
     const program = String(programName.value || "").trim();
     if (!program) {
       renderCourses([]);
       return;
     }
     const params = new URLSearchParams({ program });
+    if (category) params.set("category", category);
     const res = await fetch(`/admin/courses?${params.toString()}`);
     const body = await res.json().catch(() => ({}));
     const rows = Array.isArray(body.courses) ? body.courses : [];
@@ -189,6 +215,7 @@
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const payload = {
+      study_category: String(studyCategory.value || "").trim().toLowerCase(),
       program_name: String(programName.value || "").trim(),
       level_name: String(levelName.value || "").trim(),
       semester_no: Number(semesterNo.value || 0),
@@ -197,8 +224,8 @@
       credit_units: creditUnits.value === "" ? null : Number(creditUnits.value),
     };
 
-    if (!payload.program_name || !payload.level_name || !payload.semester_no || !payload.course_code || !payload.course_title) {
-      setMsg("Program, level, semester, course code and course title are required.");
+    if (!payload.study_category || !payload.program_name || !payload.level_name || !payload.semester_no || !payload.course_code || !payload.course_title) {
+      setMsg("Category, program, level, semester, course code and course title are required.");
       return;
     }
 
@@ -231,8 +258,13 @@
     updateProgramDependentFields();
     await loadProgramCourses();
   });
+  studyCategory.addEventListener("change", async () => {
+    await loadPrograms();
+    await loadProgramCourses();
+  });
 
   (async () => {
+    studyCategory.value = "undergraduate";
     await loadPrograms();
   })();
 </script>

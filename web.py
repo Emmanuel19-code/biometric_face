@@ -333,6 +333,32 @@ def _student_can_access_level(student_level_name, course_level_name):
 
 
 def _program_levels(duration_years):
+    return _program_levels_by_category("undergraduate", duration_years)
+
+
+def _normalize_study_category(raw_value):
+    val = str(raw_value or "").strip().lower()
+    if val in {"undergraduate", "masters", "phd"}:
+        return val
+    return "undergraduate"
+
+
+def _optional_study_category(raw_value):
+    val = str(raw_value or "").strip().lower()
+    return val if val in {"undergraduate", "masters", "phd"} else ""
+
+
+def _program_levels_by_category(study_category, duration_years=None):
+    category = _normalize_study_category(study_category)
+    if category == "masters":
+        return ["M1", "M2"]
+    if category == "phd":
+        try:
+            years = int(duration_years)
+        except (TypeError, ValueError):
+            years = 4
+        years = max(3, min(years, 6))
+        return [f"PHD{idx}" for idx in range(1, years + 1)]
     try:
         years = int(duration_years)
     except (TypeError, ValueError):
@@ -346,7 +372,7 @@ def _get_program_definition(program_name):
         return None
     return db_utils.fetch_one(
         """
-        SELECT id, program_name, duration_years, semesters_per_year, is_active, created_at
+        SELECT id, program_name, study_category, duration_years, semesters_per_year, is_active, created_at
         FROM academic_programs
         WHERE LOWER(program_name) = LOWER(%s)
         LIMIT 1
@@ -1010,7 +1036,7 @@ def _promote_eligible_students():
             skipped.append({"student_id": student.get("student_id"), "reason": "Program definition not found"})
             continue
 
-        levels = _program_levels(program.get("duration_years"))
+        levels = _program_levels_by_category(program.get("study_category"), program.get("duration_years"))
         if current_level not in levels:
             skipped.append({"student_id": student.get("student_id"), "reason": "Current level not in program levels"})
             continue
@@ -1491,7 +1517,10 @@ def student_portal_page():
     student_db_id = int(session.get("student_db_id"))
     student = db_utils.fetch_one(
         """
-        SELECT id, student_id, first_name, last_name, email, course, year_level, profile_photo, is_active
+        SELECT
+            id, student_id, first_name, last_name, email,
+            course, year_level, study_category, program_name, level_name,
+            profile_photo, is_active
         FROM students
         WHERE id = %s
         LIMIT 1
@@ -1502,26 +1531,28 @@ def student_portal_page():
         session.clear()
         return redirect(url_for("web.student_login_page"))
 
-    program_name = (student.get("course") or "").strip()
+    program_name = (student.get("program_name") or student.get("course") or "").strip()
+    student_category = _normalize_study_category(student.get("study_category"))
     program_state = db_utils.fetch_one(
         """
-        SELECT program_name, is_active
+        SELECT program_name, study_category, is_active
         FROM academic_programs
         WHERE LOWER(program_name) = LOWER(%s)
         LIMIT 1
         """,
         (program_name,),
     )
-    level_name = (student.get("year_level") or "").strip()
+    level_name = (student.get("level_name") or student.get("year_level") or "").strip()
     all_program_courses = db_utils.fetch_all(
         """
-        SELECT id, course_code, course_title, program_name, level_name, semester_no
+        SELECT id, study_category, course_code, course_title, program_name, level_name, semester_no
         FROM program_level_courses
         WHERE is_active = TRUE
+          AND LOWER(COALESCE(study_category, 'undergraduate')) = LOWER(%s)
           AND LOWER(program_name) = LOWER(%s)
         ORDER BY level_name ASC, COALESCE(semester_no, 1) ASC, course_code ASC
         """,
-        (program_name,),
+        (student_category, program_name),
     )
     available_courses = [
         c for c in all_program_courses
@@ -1571,7 +1602,7 @@ def student_portal_page():
 def student_register_course():
     student_db_id = int(session.get("student_db_id"))
     student = db_utils.fetch_one(
-        "SELECT id, course, year_level FROM students WHERE id = %s",
+        "SELECT id, study_category, course, year_level, program_name, level_name FROM students WHERE id = %s",
         (student_db_id,),
     )
     if not student:
@@ -1583,36 +1614,42 @@ def student_register_course():
     if not course_id and not course_code:
         return redirect(url_for("web.student_portal_page", err="Select a course to register."))
 
+    student_category = _normalize_study_category(student.get("study_category"))
+    student_program_name = student.get("program_name") or student.get("course")
+    student_level_name = student.get("level_name") or student.get("year_level")
+
     if course_id:
         course_row = db_utils.fetch_one(
             """
-            SELECT id, course_code, course_title, program_name, level_name, semester_no
+            SELECT id, study_category, course_code, course_title, program_name, level_name, semester_no
             FROM program_level_courses
             WHERE is_active = TRUE
               AND id = %s
+              AND LOWER(COALESCE(study_category, 'undergraduate')) = LOWER(%s)
               AND LOWER(program_name) = LOWER(%s)
             LIMIT 1
             """,
-            (course_id, student.get("course")),
+            (course_id, student_category, student_program_name),
         )
     else:
         course_row = db_utils.fetch_one(
             """
-            SELECT id, course_code, course_title, program_name, level_name, semester_no
+            SELECT id, study_category, course_code, course_title, program_name, level_name, semester_no
             FROM program_level_courses
             WHERE is_active = TRUE
               AND UPPER(course_code) = %s
+              AND LOWER(COALESCE(study_category, 'undergraduate')) = LOWER(%s)
               AND LOWER(program_name) = LOWER(%s)
             ORDER BY level_name ASC, COALESCE(semester_no, 1) ASC
             LIMIT 1
             """,
-            (course_code, student.get("course")),
+            (course_code, student_category, student_program_name),
         )
     if not course_row:
         return redirect(url_for("web.student_portal_page", err="Selected course is not available for your program."))
     if not _student_can_access_course(
-        student.get("course"),
-        student.get("year_level"),
+        student_program_name,
+        student_level_name,
         course_row.get("level_name"),
         course_row.get("semester_no"),
     ):
@@ -1881,6 +1918,22 @@ def dashboard():
             "verified": int((verified_row or {}).get("c") or 0),
             "failed": int((failed_row or {}).get("c") or 0),
         }
+        category_rows = db_utils.fetch_all(
+            """
+            SELECT LOWER(COALESCE(study_category, 'undergraduate')) AS category, COUNT(*) AS c
+            FROM students
+            GROUP BY LOWER(COALESCE(study_category, 'undergraduate'))
+            ORDER BY category ASC
+            """
+        )
+        category_breakdown = {
+            "undergraduate": 0,
+            "masters": 0,
+            "phd": 0,
+        }
+        for row in category_rows:
+            key = _normalize_study_category(row.get("category"))
+            category_breakdown[key] = int(row.get("c") or 0)
 
         rows = db_utils.fetch_all(
             """
@@ -1917,12 +1970,14 @@ def dashboard():
         logger.warning(f"Dashboard data fallback used: {exc}")
         stats = {"students": 0, "sessions": 0, "verified": 0, "failed": 0}
         recent_activities = []
+        category_breakdown = {"undergraduate": 0, "masters": 0, "phd": 0}
 
     return render_template(
         "dashboard/index.html",
         title="Dashboard",
         stats=stats,
         recent_activities=recent_activities,
+        category_breakdown=category_breakdown,
     )
 
 @web_bp.get("/students/register")
@@ -1966,20 +2021,41 @@ def register_student_submit():
         age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
         if age < 15:
             return jsonify({"error": "Student must be at least 15 years old"}), 400
-        course_choice = str(data.get("course") or "").strip()
-        if not course_choice:
-            return jsonify({"error": "course/program is required"}), 400
+        study_category = _normalize_study_category(data.get("study_category"))
+        program_choice = str(data.get("program_name") or data.get("course") or "").strip()
+        level_choice = str(data.get("level_name") or data.get("year_level") or "").strip()
+        if not program_choice:
+            return jsonify({"error": "program_name is required"}), 400
+        if not level_choice:
+            return jsonify({"error": "level_name is required"}), 400
         program_row = db_utils.fetch_one(
             """
-            SELECT program_name, is_active
+            SELECT program_name, study_category, duration_years, is_active
             FROM academic_programs
             WHERE LOWER(program_name) = LOWER(%s)
             LIMIT 1
             """,
-            (course_choice,),
+            (program_choice,),
         )
         if not program_row:
             return jsonify({"error": "Selected program is invalid"}), 400
+        program_category = _normalize_study_category(program_row.get("study_category"))
+        if study_category != program_category:
+            return jsonify({"error": "Selected program does not match study_category"}), 400
+        allowed_levels = set(_program_levels_by_category(program_category, program_row.get("duration_years")))
+        if level_choice not in allowed_levels:
+            return jsonify({"error": f"level_name must be one of: {', '.join(sorted(allowed_levels))}"}), 400
+
+        entry_cohort = data.get("entry_cohort")
+        expected_graduation_year = data.get("expected_graduation_year")
+        try:
+            entry_cohort = int(entry_cohort) if str(entry_cohort).strip() else None
+        except Exception:
+            return jsonify({"error": "entry_cohort must be a valid year"}), 400
+        try:
+            expected_graduation_year = int(expected_graduation_year) if str(expected_graduation_year).strip() else None
+        except Exception:
+            return jsonify({"error": "expected_graduation_year must be a valid year"}), 400
         current_year = _get_current_academic_year()
         if not current_year:
             return jsonify({"error": "No current academic year is set. Create or set the upcoming year first."}), 400
@@ -1995,7 +2071,7 @@ def register_student_submit():
             ), 400
 
         if current_year and not bool(current_year.get("enrollment_open")):
-            has_exception = _academic_year_program_exception_exists(current_year.get("id"), course_choice)
+            has_exception = _academic_year_program_exception_exists(current_year.get("id"), program_choice)
             if has_exception:
                 pass
             else:
@@ -2044,8 +2120,13 @@ def register_student_submit():
                 "email": email,
                 "phone": data.get("phone"),
                 "department": derived_department,
+                "study_category": program_category,
                 "course": program_row.get("program_name"),
-                "year_level": data.get("year_level"),
+                "year_level": level_choice,
+                "program_name": program_row.get("program_name"),
+                "level_name": level_choice,
+                "entry_cohort": entry_cohort,
+                "expected_graduation_year": expected_graduation_year,
                 "admission_academic_year": current_year.get("year_label"),
                 "date_of_birth": dob,
             },
@@ -2213,6 +2294,9 @@ def attendance_logs_page():
     session_id = request.args.get("session_id", type=int)
     outcome = str(request.args.get("outcome") or "").strip().upper()
     q = str(request.args.get("q") or "").strip()
+    study_category = _optional_study_category(request.args.get("category"))
+    program_name = str(request.args.get("program") or "").strip()
+    level_name = str(request.args.get("level") or "").strip()
     page = max(1, request.args.get("page", default=1, type=int) or 1)
     per_page = request.args.get("per_page", default=100, type=int) or 100
     per_page = max(20, min(per_page, 300))
@@ -2240,6 +2324,15 @@ def attendance_logs_page():
         )
         like = f"%{q}%"
         params.extend([like, like, like, like, like, like])
+    if study_category:
+        where.append("LOWER(COALESCE(s.study_category, 'undergraduate')) = LOWER(%s)")
+        params.append(study_category)
+    if program_name:
+        where.append("LOWER(COALESCE(s.program_name, s.course, '')) = LOWER(%s)")
+        params.append(program_name)
+    if level_name:
+        where.append("LOWER(COALESCE(s.level_name, s.year_level, '')) = LOWER(%s)")
+        params.append(level_name)
 
     if _has_role("lecturer"):
         admin_id = int(session.get("admin_id"))
@@ -2249,7 +2342,18 @@ def attendance_logs_page():
                 "attendance/logs.html",
                 rows=[],
                 sessions=[],
-                filters={"session_id": session_id, "outcome": outcome, "q": q, "per_page": per_page},
+                category_options=[],
+                program_options=[],
+                level_options=[],
+                filters={
+                    "session_id": session_id,
+                    "outcome": outcome,
+                    "q": q,
+                    "category": study_category,
+                    "program": program_name,
+                    "level": level_name,
+                    "per_page": per_page,
+                },
                 pagination={
                     "page": 1,
                     "per_page": per_page,
@@ -2390,12 +2494,50 @@ def attendance_logs_page():
             if str(s.get("course_code") or "").strip().upper() in assigned_codes
         ]
 
+    category_rows = db_utils.fetch_all(
+        """
+        SELECT DISTINCT LOWER(COALESCE(study_category, 'undergraduate')) AS category
+        FROM students
+        WHERE COALESCE(is_active, TRUE) = TRUE
+        ORDER BY category ASC
+        """
+    )
+    program_rows = db_utils.fetch_all(
+        """
+        SELECT DISTINCT COALESCE(program_name, course, '') AS program_name
+        FROM students
+        WHERE COALESCE(is_active, TRUE) = TRUE
+          AND COALESCE(LTRIM(RTRIM(COALESCE(program_name, course, ''))), '') <> ''
+        ORDER BY program_name ASC
+        """
+    )
+    level_rows = db_utils.fetch_all(
+        """
+        SELECT DISTINCT COALESCE(level_name, year_level, '') AS level_name
+        FROM students
+        WHERE COALESCE(is_active, TRUE) = TRUE
+          AND COALESCE(LTRIM(RTRIM(COALESCE(level_name, year_level, ''))), '') <> ''
+        ORDER BY level_name ASC
+        """
+    )
+
     return render_template(
         "attendance/logs.html",
         rows=rows,
         grouped_sessions=grouped_sessions,
         sessions=sessions,
-        filters={"session_id": session_id, "outcome": outcome, "q": q, "per_page": per_page},
+        category_options=[r.get("category") for r in category_rows if r.get("category")],
+        program_options=[r.get("program_name") for r in program_rows if r.get("program_name")],
+        level_options=[r.get("level_name") for r in level_rows if r.get("level_name")],
+        filters={
+            "session_id": session_id,
+            "outcome": outcome,
+            "q": q,
+            "category": study_category,
+            "program": program_name,
+            "level": level_name,
+            "per_page": per_page,
+        },
         pagination={
             "page": page,
             "per_page": per_page,
@@ -5435,11 +5577,15 @@ def update_programme_department(programme_id):
 @web_bp.get("/admin/courses")
 @roles_required("admin", "super_admin")
 def list_program_level_courses():
+    study_category = _optional_study_category(request.args.get("category"))
     program = str(request.args.get("program") or "").strip()
     level = str(request.args.get("level") or "").strip()
     semester = request.args.get("semester", type=int)
     where = ["is_active = TRUE"]
     params = []
+    if study_category:
+        where.append("LOWER(COALESCE(study_category, 'undergraduate')) = LOWER(%s)")
+        params.append(study_category)
     if program:
         where.append("LOWER(program_name) = LOWER(%s)")
         params.append(program)
@@ -5451,10 +5597,10 @@ def list_program_level_courses():
         params.append(int(semester))
     rows = db_utils.fetch_all(
         f"""
-        SELECT id, program_name, level_name, semester_no, course_code, course_title, credit_units, is_active, created_at
+        SELECT id, study_category, program_name, level_name, semester_no, course_code, course_title, credit_units, is_active, created_at
         FROM program_level_courses
         WHERE {" AND ".join(where)}
-        ORDER BY program_name ASC, level_name ASC, COALESCE(semester_no, 1) ASC, course_code ASC
+        ORDER BY study_category ASC, program_name ASC, level_name ASC, COALESCE(semester_no, 1) ASC, course_code ASC
         """,
         tuple(params),
     )
@@ -5466,12 +5612,21 @@ def list_program_level_courses():
 def list_academic_programs():
     _ensure_departments_schema()
     active_only = str(request.args.get("active_only") or "").strip().lower() in {"1", "true", "yes"}
-    where_sql = "WHERE p.is_active = TRUE" if active_only else ""
+    study_category = _optional_study_category(request.args.get("study_category"))
+    where = []
+    params = []
+    if active_only:
+        where.append("p.is_active = TRUE")
+    if study_category:
+        where.append("LOWER(COALESCE(p.study_category, 'undergraduate')) = LOWER(%s)")
+        params.append(study_category)
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     rows = db_utils.fetch_all(
         f"""
         SELECT
             p.id,
             p.program_name,
+            COALESCE(p.study_category, 'undergraduate') AS study_category,
             p.duration_years,
             p.semesters_per_year,
             p.is_active,
@@ -5483,7 +5638,8 @@ def list_academic_programs():
         LEFT JOIN departments d ON d.id = m.department_id
         {where_sql}
         ORDER BY p.is_active DESC, p.program_name ASC
-        """
+        """,
+        tuple(params),
     )
     return jsonify({"programs": rows, "total": len(rows)}), 200
 
@@ -5494,6 +5650,7 @@ def create_academic_program():
     _ensure_departments_schema()
     payload = request.get_json() or {}
     program_name = str(payload.get("program_name") or "").strip()
+    study_category = _normalize_study_category(payload.get("study_category"))
     department_id = payload.get("department_id")
     duration_years = payload.get("duration_years")
     semesters_per_year = payload.get("semesters_per_year")
@@ -5524,16 +5681,17 @@ def create_academic_program():
 
     row = db_utils.execute_returning(
         """
-        INSERT INTO academic_programs (program_name, duration_years, semesters_per_year, is_active)
-        VALUES (%s, %s, %s, TRUE)
+        INSERT INTO academic_programs (program_name, study_category, duration_years, semesters_per_year, is_active)
+        VALUES (%s, %s, %s, %s, TRUE)
         ON CONFLICT (program_name)
         DO UPDATE SET
+            study_category = EXCLUDED.study_category,
             duration_years = EXCLUDED.duration_years,
             semesters_per_year = EXCLUDED.semesters_per_year,
             is_active = TRUE
-        RETURNING id, program_name, duration_years, semesters_per_year, is_active, created_at
+        RETURNING id, program_name, study_category, duration_years, semesters_per_year, is_active, created_at
         """,
-        (program_name, duration_years, semesters_per_year),
+        (program_name, study_category, duration_years, semesters_per_year),
     )
     db_utils.execute(
         "DELETE FROM program_department_map WHERE LOWER(program_name) = LOWER(%s)",
@@ -5873,7 +6031,7 @@ def list_program_level_semesters():
     if not program:
         programs = db_utils.fetch_all(
             """
-            SELECT id, program_name, duration_years, semesters_per_year, is_active, created_at
+            SELECT id, program_name, study_category, duration_years, semesters_per_year, is_active, created_at
             FROM academic_programs
             WHERE is_active = TRUE
             ORDER BY program_name ASC
@@ -5881,7 +6039,7 @@ def list_program_level_semesters():
         )
         rows = []
         for p in programs:
-            for level_name in _program_levels(p.get("duration_years")):
+            for level_name in _program_levels_by_category(p.get("study_category"), p.get("duration_years")):
                 rows.append(
                     {
                         "program_name": p.get("program_name"),
@@ -5898,7 +6056,7 @@ def list_program_level_semesters():
         return jsonify({"semesters": [], "levels": [], "overrides": [], "total": 0}), 200
 
     levels = []
-    for level_name in _program_levels(program_row.get("duration_years")):
+    for level_name in _program_levels_by_category(program_row.get("study_category"), program_row.get("duration_years")):
         default_semesters = int(program_row.get("semesters_per_year") or 2)
         levels.append(
             {
@@ -5977,7 +6135,7 @@ def set_program_level_semester_status():
 
     program_exists = db_utils.fetch_one(
         """
-        SELECT id, program_name, duration_years, semesters_per_year
+        SELECT id, program_name, study_category, duration_years, semesters_per_year
         FROM academic_programs
         WHERE LOWER(program_name) = LOWER(%s) AND is_active = TRUE
         LIMIT 1
@@ -5987,7 +6145,7 @@ def set_program_level_semester_status():
     if not program_exists:
         return jsonify({"error": "Select a valid active program first"}), 400
 
-    allowed_levels = set(_program_levels(program_exists.get("duration_years")))
+    allowed_levels = set(_program_levels_by_category(program_exists.get("study_category"), program_exists.get("duration_years")))
     if level not in allowed_levels:
         return jsonify({"error": f"level_name must be one of: {', '.join(sorted(allowed_levels))}"}), 400
     max_semesters = int(program_exists.get("semesters_per_year") or 2)
@@ -6056,6 +6214,7 @@ def set_program_level_semester_status():
 @roles_required("admin", "super_admin")
 def create_program_level_course():
     payload = request.get_json() or {}
+    study_category = _optional_study_category(payload.get("study_category"))
     program = str(payload.get("program_name") or "").strip()
     level = str(payload.get("level_name") or "").strip()
     semester_no = payload.get("semester_no")
@@ -6074,7 +6233,7 @@ def create_program_level_course():
 
     program_exists = db_utils.fetch_one(
         """
-        SELECT id, program_name, duration_years, semesters_per_year
+        SELECT id, program_name, study_category, duration_years, semesters_per_year
         FROM academic_programs
         WHERE LOWER(program_name) = LOWER(%s) AND is_active = TRUE
         LIMIT 1
@@ -6083,7 +6242,10 @@ def create_program_level_course():
     )
     if not program_exists:
         return jsonify({"error": "Select a valid active program first"}), 400
-    allowed_levels = set(_program_levels(program_exists.get("duration_years")))
+    program_category = _normalize_study_category(program_exists.get("study_category"))
+    if study_category and study_category != program_category:
+        return jsonify({"error": "study_category does not match selected program"}), 400
+    allowed_levels = set(_program_levels_by_category(program_category, program_exists.get("duration_years")))
     if level not in allowed_levels:
         return jsonify({"error": f"level_name must be one of: {', '.join(sorted(allowed_levels))}"}), 400
     max_semesters = _effective_semester_count(program, level)
@@ -6105,17 +6267,18 @@ def create_program_level_course():
     row = db_utils.execute_returning(
         """
         INSERT INTO program_level_courses
-            (program_name, level_name, semester_no, course_code, course_title, credit_units, is_active)
-        VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+            (study_category, program_name, level_name, semester_no, course_code, course_title, credit_units, is_active)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
         ON CONFLICT (program_name, level_name, course_code)
         DO UPDATE SET
+            study_category = EXCLUDED.study_category,
             semester_no = EXCLUDED.semester_no,
             course_title = EXCLUDED.course_title,
             credit_units = EXCLUDED.credit_units,
             is_active = TRUE
-        RETURNING id, program_name, level_name, semester_no, course_code, course_title, credit_units, is_active, created_at
+        RETURNING id, study_category, program_name, level_name, semester_no, course_code, course_title, credit_units, is_active, created_at
         """,
-        (program, level, semester_no, course_code, course_title, credit_units),
+        (program_category, program, level, semester_no, course_code, course_title, credit_units),
     )
     return jsonify({"message": "Course saved successfully", "course": row}), 200
 
@@ -6126,7 +6289,7 @@ def update_program_level_course(course_id):
     payload = request.get_json() or {}
     existing = db_utils.fetch_one(
         """
-        SELECT id, program_name, level_name, semester_no, course_code, course_title, credit_units, is_active
+        SELECT id, study_category, program_name, level_name, semester_no, course_code, course_title, credit_units, is_active
         FROM program_level_courses
         WHERE id = %s
         LIMIT 1
@@ -6136,6 +6299,7 @@ def update_program_level_course(course_id):
     if not existing:
         return jsonify({"error": "Course mapping not found"}), 404
 
+    study_category = _normalize_study_category(payload.get("study_category") or existing.get("study_category"))
     program = str(payload.get("program_name") or existing.get("program_name") or "").strip()
     level = str(payload.get("level_name") or existing.get("level_name") or "").strip()
     course_code = str(payload.get("course_code") or existing.get("course_code") or "").strip().upper()
@@ -6154,7 +6318,7 @@ def update_program_level_course(course_id):
 
     program_exists = db_utils.fetch_one(
         """
-        SELECT id, program_name, duration_years, semesters_per_year, is_active
+        SELECT id, program_name, study_category, duration_years, semesters_per_year, is_active
         FROM academic_programs
         WHERE LOWER(program_name) = LOWER(%s)
         LIMIT 1
@@ -6163,7 +6327,10 @@ def update_program_level_course(course_id):
     )
     if not program_exists:
         return jsonify({"error": "Selected program does not exist"}), 400
-    allowed_levels = set(_program_levels(program_exists.get("duration_years")))
+    program_category = _normalize_study_category(program_exists.get("study_category"))
+    if study_category != program_category:
+        return jsonify({"error": "study_category does not match selected program"}), 400
+    allowed_levels = set(_program_levels_by_category(program_category, program_exists.get("duration_years")))
     if level not in allowed_levels:
         return jsonify({"error": f"level_name must be one of: {', '.join(sorted(allowed_levels))}"}), 400
     max_semesters = _effective_semester_count(program, level)
@@ -6201,6 +6368,7 @@ def update_program_level_course(course_id):
         """
         UPDATE program_level_courses
         SET
+            study_category = %s,
             program_name = %s,
             level_name = %s,
             semester_no = %s,
@@ -6209,9 +6377,9 @@ def update_program_level_course(course_id):
             credit_units = %s,
             is_active = TRUE
         WHERE id = %s
-        RETURNING id, program_name, level_name, semester_no, course_code, course_title, credit_units, is_active, created_at
+        RETURNING id, study_category, program_name, level_name, semester_no, course_code, course_title, credit_units, is_active, created_at
         """,
-        (program, level, semester_no, course_code, course_title, credit_units, course_id),
+        (program_category, program, level, semester_no, course_code, course_title, credit_units, course_id),
     )
     return jsonify({"message": "Course updated successfully", "course": row}), 200
 
@@ -6848,7 +7016,9 @@ def students_directory_data():
                 """
                 SELECT
                     id, student_id, first_name, last_name, email, phone,
-                    department, course, year_level, profile_photo, is_active, registration_date, last_updated,
+                    department, course, year_level, study_category, program_name, level_name,
+                    entry_cohort, expected_graduation_year,
+                    profile_photo, is_active, registration_date, last_updated,
                     CASE
                         WHEN face_encodings IS NOT NULL AND BTRIM(face_encodings) <> '' THEN TRUE
                         ELSE FALSE
@@ -6864,7 +7034,9 @@ def students_directory_data():
                 """
                 SELECT
                     id, student_id, first_name, last_name, email, phone,
-                    department, course, year_level, profile_photo, is_active, registration_date, last_updated,
+                    department, course, year_level, study_category, program_name, level_name,
+                    entry_cohort, expected_graduation_year,
+                    profile_photo, is_active, registration_date, last_updated,
                     CASE
                         WHEN face_encodings IS NOT NULL AND BTRIM(face_encodings) <> '' THEN TRUE
                         ELSE FALSE
@@ -6887,15 +7059,37 @@ def update_student_directory_data(student_id):
         payload = request.get_json() or {}
         allowed = {
             "first_name", "last_name", "email", "phone",
-            "department", "course", "year_level", "profile_photo", "is_active"
+            "department", "course", "year_level",
+            "study_category", "program_name", "level_name",
+            "entry_cohort", "expected_graduation_year",
+            "profile_photo", "is_active"
         }
         fields = []
         params = []
 
         for key in allowed:
             if key in payload:
+                value = payload.get(key)
+                if key == "study_category":
+                    value = _normalize_study_category(value)
+                if key in {"entry_cohort", "expected_graduation_year"}:
+                    raw = str(value or "").strip()
+                    if raw == "":
+                        value = None
+                    else:
+                        try:
+                            value = int(raw)
+                        except Exception:
+                            return jsonify({"error": f"{key} must be numeric"}), 400
                 fields.append(f"{key} = %s")
-                params.append(payload.get(key))
+                params.append(value)
+
+        if "program_name" in payload and "course" not in payload:
+            fields.append("course = %s")
+            params.append(payload.get("program_name"))
+        if "level_name" in payload and "year_level" not in payload:
+            fields.append("year_level = %s")
+            params.append(payload.get("level_name"))
 
         if not fields:
             return jsonify({"error": "No valid fields provided"}), 400
@@ -6908,7 +7102,9 @@ def update_student_directory_data(student_id):
             WHERE student_id = %s OR CAST(id AS TEXT) = %s
             RETURNING
                 id, student_id, first_name, last_name, email, phone,
-                department, course, year_level, profile_photo, is_active, registration_date, last_updated,
+                department, course, year_level, study_category, program_name, level_name,
+                entry_cohort, expected_graduation_year,
+                profile_photo, is_active, registration_date, last_updated,
                 CASE
                     WHEN face_encodings IS NOT NULL AND BTRIM(face_encodings) <> '' THEN TRUE
                     ELSE FALSE
@@ -6970,7 +7166,9 @@ def update_student_biometric_data(student_id):
             WHERE id = %s
             RETURNING
                 id, student_id, first_name, last_name, email, phone,
-                department, course, year_level, profile_photo, is_active, registration_date, last_updated,
+                department, course, year_level, study_category, program_name, level_name,
+                entry_cohort, expected_graduation_year,
+                profile_photo, is_active, registration_date, last_updated,
                 CASE
                     WHEN face_encodings IS NOT NULL AND BTRIM(face_encodings) <> '' THEN TRUE
                     ELSE FALSE

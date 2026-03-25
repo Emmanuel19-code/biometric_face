@@ -56,5 +56,47 @@
   </div>
 </div>
 
+<div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <div class="text-sm font-semibold">Students By Category</div>
+    <div class="mt-3 grid grid-cols-3 gap-3 text-sm">
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-slate-500 text-xs">Undergraduate</div>
+        <div class="text-xl font-bold mt-1">{{ category_breakdown.undergraduate or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-slate-500 text-xs">Masters</div>
+        <div class="text-xl font-bold mt-1">{{ category_breakdown.masters or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-3">
+        <div class="text-slate-500 text-xs">PhD</div>
+        <div class="text-xl font-bold mt-1">{{ category_breakdown.phd or 0 }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <div class="text-sm font-semibold">Category Mix</div>
+    {% set total_students = (stats.students or 0) %}
+    {% set ug_pct = ((category_breakdown.undergraduate or 0) * 100 / total_students) if total_students else 0 %}
+    {% set ms_pct = ((category_breakdown.masters or 0) * 100 / total_students) if total_students else 0 %}
+    {% set phd_pct = ((category_breakdown.phd or 0) * 100 / total_students) if total_students else 0 %}
+    <div class="mt-3 space-y-3 text-xs">
+      <div>
+        <div class="flex justify-between"><span>Undergraduate</span><span>{{ '%.1f'|format(ug_pct) }}%</span></div>
+        <div class="mt-1 h-2 rounded bg-slate-100 overflow-hidden"><div class="h-2 bg-slate-700" style="width: {{ ug_pct }}%"></div></div>
+      </div>
+      <div>
+        <div class="flex justify-between"><span>Masters</span><span>{{ '%.1f'|format(ms_pct) }}%</span></div>
+        <div class="mt-1 h-2 rounded bg-slate-100 overflow-hidden"><div class="h-2 bg-emerald-600" style="width: {{ ms_pct }}%"></div></div>
+      </div>
+      <div>
+        <div class="flex justify-between"><span>PhD</span><span>{{ '%.1f'|format(phd_pct) }}%</span></div>
+        <div class="mt-1 h-2 rounded bg-slate-100 overflow-hidden"><div class="h-2 bg-amber-500" style="width: {{ phd_pct }}%"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 

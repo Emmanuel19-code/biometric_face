@@ -227,6 +227,11 @@ def _init_sqlserver_schema():
             department NVARCHAR(100) NULL,
             course NVARCHAR(100) NULL,
             year_level NVARCHAR(20) NULL,
+            study_category NVARCHAR(20) NOT NULL CONSTRAINT DF_students_study_category DEFAULT 'undergraduate',
+            program_name NVARCHAR(150) NULL,
+            level_name NVARCHAR(40) NULL,
+            entry_cohort INT NULL,
+            expected_graduation_year INT NULL,
             face_encodings NVARCHAR(MAX) NOT NULL,
             registration_date DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
             is_active BIT NOT NULL DEFAULT 1,
@@ -238,6 +243,13 @@ def _init_sqlserver_schema():
         "IF COL_LENGTH('students', 'profile_photo') IS NULL ALTER TABLE students ADD profile_photo NVARCHAR(MAX) NULL;",
         "IF COL_LENGTH('students', 'admission_academic_year') IS NULL ALTER TABLE students ADD admission_academic_year NVARCHAR(40) NULL;",
         "IF COL_LENGTH('students', 'date_of_birth') IS NULL ALTER TABLE students ADD date_of_birth DATE NULL;",
+        "IF COL_LENGTH('students', 'study_category') IS NULL ALTER TABLE students ADD study_category NVARCHAR(20) NOT NULL CONSTRAINT DF_students_study_category_legacy DEFAULT 'undergraduate';",
+        "IF COL_LENGTH('students', 'program_name') IS NULL ALTER TABLE students ADD program_name NVARCHAR(150) NULL;",
+        "IF COL_LENGTH('students', 'level_name') IS NULL ALTER TABLE students ADD level_name NVARCHAR(40) NULL;",
+        "IF COL_LENGTH('students', 'entry_cohort') IS NULL ALTER TABLE students ADD entry_cohort INT NULL;",
+        "IF COL_LENGTH('students', 'expected_graduation_year') IS NULL ALTER TABLE students ADD expected_graduation_year INT NULL;",
+        "UPDATE students SET program_name = course WHERE (program_name IS NULL OR LTRIM(RTRIM(program_name)) = '') AND course IS NOT NULL;",
+        "UPDATE students SET level_name = year_level WHERE (level_name IS NULL OR LTRIM(RTRIM(level_name)) = '') AND year_level IS NOT NULL;",
         """
         IF OBJECT_ID('exam_periods', 'U') IS NULL
         CREATE TABLE exam_periods (
@@ -410,6 +422,7 @@ def _init_sqlserver_schema():
         IF OBJECT_ID('program_level_courses', 'U') IS NULL
         CREATE TABLE program_level_courses (
             id INT IDENTITY(1,1) PRIMARY KEY,
+            study_category NVARCHAR(20) NOT NULL CONSTRAINT DF_plc_study_category DEFAULT 'undergraduate',
             program_name NVARCHAR(150) NOT NULL,
             level_name NVARCHAR(30) NOT NULL,
             semester_no INT NULL,
@@ -421,6 +434,7 @@ def _init_sqlserver_schema():
             CONSTRAINT UQ_program_level_courses UNIQUE (program_name, level_name, course_code)
         );
         """,
+        "IF COL_LENGTH('program_level_courses', 'study_category') IS NULL ALTER TABLE program_level_courses ADD study_category NVARCHAR(20) NOT NULL CONSTRAINT DF_plc_study_category_legacy DEFAULT 'undergraduate';",
         "IF COL_LENGTH('program_level_courses', 'semester_no') IS NULL ALTER TABLE program_level_courses ADD semester_no INT NULL;",
         """
         IF OBJECT_ID('program_level_semesters', 'U') IS NULL
@@ -452,12 +466,14 @@ def _init_sqlserver_schema():
         CREATE TABLE academic_programs (
             id INT IDENTITY(1,1) PRIMARY KEY,
             program_name NVARCHAR(150) NOT NULL UNIQUE,
+            study_category NVARCHAR(20) NOT NULL CONSTRAINT DF_academic_programs_study_category DEFAULT 'undergraduate',
             duration_years INT NOT NULL DEFAULT 4,
             semesters_per_year INT NOT NULL DEFAULT 2,
             is_active BIT NOT NULL DEFAULT 1,
             created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
         );
         """,
+        "IF COL_LENGTH('academic_programs', 'study_category') IS NULL ALTER TABLE academic_programs ADD study_category NVARCHAR(20) NOT NULL CONSTRAINT DF_academic_programs_study_category_legacy DEFAULT 'undergraduate';",
         """
         IF OBJECT_ID('academic_years', 'U') IS NULL
         CREATE TABLE academic_years (
@@ -583,6 +599,8 @@ def _init_sqlserver_schema():
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_admins_email' AND object_id=OBJECT_ID('admins')) CREATE INDEX idx_admins_email ON admins (email);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_students_student_id' AND object_id=OBJECT_ID('students')) CREATE INDEX idx_students_student_id ON students (student_id);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_students_email' AND object_id=OBJECT_ID('students')) CREATE INDEX idx_students_email ON students (email);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_students_study_category' AND object_id=OBJECT_ID('students')) CREATE INDEX idx_students_study_category ON students (study_category);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_students_program_level' AND object_id=OBJECT_ID('students')) CREATE INDEX idx_students_program_level ON students (program_name, level_name);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_sessions_start_time' AND object_id=OBJECT_ID('examination_sessions')) CREATE INDEX idx_sessions_start_time ON examination_sessions (start_time);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_exam_halls_name' AND object_id=OBJECT_ID('exam_halls')) CREATE INDEX idx_exam_halls_name ON exam_halls (name);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_sessions_hall_id' AND object_id=OBJECT_ID('examination_sessions')) CREATE INDEX idx_sessions_hall_id ON examination_sessions (hall_id);",
@@ -605,6 +623,7 @@ def _init_sqlserver_schema():
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_plc_program_level' AND object_id=OBJECT_ID('program_level_courses')) CREATE INDEX idx_plc_program_level ON program_level_courses (program_name, level_name);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_plc_program_level_semester' AND object_id=OBJECT_ID('program_level_courses')) CREATE INDEX idx_plc_program_level_semester ON program_level_courses (program_name, level_name, semester_no);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_plc_course_code' AND object_id=OBJECT_ID('program_level_courses')) CREATE INDEX idx_plc_course_code ON program_level_courses (course_code);",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_plc_study_category' AND object_id=OBJECT_ID('program_level_courses')) CREATE INDEX idx_plc_study_category ON program_level_courses (study_category);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_pls_program_level' AND object_id=OBJECT_ID('program_level_semesters')) CREATE INDEX idx_pls_program_level ON program_level_semesters (program_name, level_name);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_plss_program_level_semester' AND object_id=OBJECT_ID('program_level_semester_statuses')) CREATE INDEX idx_plss_program_level_semester ON program_level_semester_statuses (program_name, level_name, semester_no);",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_academic_programs_active' AND object_id=OBJECT_ID('academic_programs')) CREATE INDEX idx_academic_programs_active ON academic_programs (is_active);",
@@ -865,6 +884,11 @@ def init_db_schema():
             department VARCHAR(100),
             course VARCHAR(100),
             year_level VARCHAR(20),
+            study_category VARCHAR(20) NOT NULL DEFAULT 'undergraduate',
+            program_name VARCHAR(150),
+            level_name VARCHAR(40),
+            entry_cohort INTEGER,
+            expected_graduation_year INTEGER,
             face_encodings TEXT NOT NULL,
             registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_active BOOLEAN DEFAULT TRUE,
@@ -876,8 +900,17 @@ def init_db_schema():
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS profile_photo TEXT;",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS admission_academic_year VARCHAR(40);",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS date_of_birth DATE;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS study_category VARCHAR(20) NOT NULL DEFAULT 'undergraduate';",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS program_name VARCHAR(150);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS level_name VARCHAR(40);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS entry_cohort INTEGER;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS expected_graduation_year INTEGER;",
+        "UPDATE students SET program_name = course WHERE COALESCE(BTRIM(program_name), '') = '' AND COALESCE(BTRIM(course), '') <> '';",
+        "UPDATE students SET level_name = year_level WHERE COALESCE(BTRIM(level_name), '') = '' AND COALESCE(BTRIM(year_level), '') <> '';",
         "CREATE INDEX IF NOT EXISTS idx_students_student_id ON students (student_id);",
         "CREATE INDEX IF NOT EXISTS idx_students_email ON students (email);",
+        "CREATE INDEX IF NOT EXISTS idx_students_study_category ON students (study_category);",
+        "CREATE INDEX IF NOT EXISTS idx_students_program_level ON students (program_name, level_name);",
         """
         CREATE TABLE IF NOT EXISTS exam_periods (
             id SERIAL PRIMARY KEY,
@@ -1036,6 +1069,7 @@ def init_db_schema():
         """
         CREATE TABLE IF NOT EXISTS program_level_courses (
             id SERIAL PRIMARY KEY,
+            study_category VARCHAR(20) NOT NULL DEFAULT 'undergraduate',
             program_name VARCHAR(150) NOT NULL,
             level_name VARCHAR(30) NOT NULL,
             semester_no INTEGER,
@@ -1047,10 +1081,12 @@ def init_db_schema():
             UNIQUE (program_name, level_name, course_code)
         );
         """,
+        "ALTER TABLE program_level_courses ADD COLUMN IF NOT EXISTS study_category VARCHAR(20) NOT NULL DEFAULT 'undergraduate';",
         "ALTER TABLE program_level_courses ADD COLUMN IF NOT EXISTS semester_no INTEGER;",
         "CREATE INDEX IF NOT EXISTS idx_plc_program_level ON program_level_courses (program_name, level_name);",
         "CREATE INDEX IF NOT EXISTS idx_plc_program_level_semester ON program_level_courses (program_name, level_name, semester_no);",
         "CREATE INDEX IF NOT EXISTS idx_plc_course_code ON program_level_courses (course_code);",
+        "CREATE INDEX IF NOT EXISTS idx_plc_study_category ON program_level_courses (study_category);",
         """
         CREATE TABLE IF NOT EXISTS program_level_semesters (
             id SERIAL PRIMARY KEY,
@@ -1080,15 +1116,18 @@ def init_db_schema():
         CREATE TABLE IF NOT EXISTS academic_programs (
             id SERIAL PRIMARY KEY,
             program_name VARCHAR(150) NOT NULL UNIQUE,
+            study_category VARCHAR(20) NOT NULL DEFAULT 'undergraduate',
             duration_years INTEGER NOT NULL DEFAULT 4,
             semesters_per_year INTEGER NOT NULL DEFAULT 2,
             is_active BOOLEAN NOT NULL DEFAULT TRUE,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         """,
+        "ALTER TABLE academic_programs ADD COLUMN IF NOT EXISTS study_category VARCHAR(20) NOT NULL DEFAULT 'undergraduate';",
         "ALTER TABLE academic_programs ADD COLUMN IF NOT EXISTS duration_years INTEGER NOT NULL DEFAULT 4;",
         "ALTER TABLE academic_programs ADD COLUMN IF NOT EXISTS semesters_per_year INTEGER NOT NULL DEFAULT 2;",
         "CREATE INDEX IF NOT EXISTS idx_academic_programs_active ON academic_programs (is_active);",
+        "CREATE INDEX IF NOT EXISTS idx_academic_programs_category ON academic_programs (study_category);",
         """
         CREATE TABLE IF NOT EXISTS academic_years (
             id SERIAL PRIMARY KEY,

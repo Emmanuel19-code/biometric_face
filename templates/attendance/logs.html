@@ -48,6 +48,36 @@
     </div>
 
     <div class="md:col-span-1">
+      <label class="text-xs text-slate-500">Category</label>
+      <select name="category" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="">All categories</option>
+        {% for c in category_options %}
+        <option value="{{ c }}" {% if filters.category == c %}selected{% endif %}>{{ c|title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="md:col-span-1">
+      <label class="text-xs text-slate-500">Program</label>
+      <select name="program" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="">All programs</option>
+        {% for p in program_options %}
+        <option value="{{ p }}" {% if filters.program == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="md:col-span-1">
+      <label class="text-xs text-slate-500">Level</label>
+      <select name="level" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <option value="">All levels</option>
+        {% for l in level_options %}
+        <option value="{{ l }}" {% if filters.level == l %}selected{% endif %}>{{ l }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="md:col-span-1">
       <label class="text-xs text-slate-500">Rows Per Page</label>
       <select name="per_page" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
         <option value="20" {% if filters.per_page == 20 %}selected{% endif %}>20</option>
@@ -142,7 +172,7 @@
     <div class="flex items-center gap-2">
       {% if pagination.has_prev %}
       <a
-        href="{{ url_for('web.attendance_logs_page', page=pagination.prev_page, per_page=pagination.per_page, session_id=filters.session_id, outcome=filters.outcome, q=filters.q) }}"
+        href="{{ url_for('web.attendance_logs_page', page=pagination.prev_page, per_page=pagination.per_page, session_id=filters.session_id, outcome=filters.outcome, q=filters.q, category=filters.category, program=filters.program, level=filters.level) }}"
         class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50"
       >
         Previous
@@ -152,7 +182,7 @@
       {% endif %}
       {% if pagination.has_next %}
       <a
-        href="{{ url_for('web.attendance_logs_page', page=pagination.next_page, per_page=pagination.per_page, session_id=filters.session_id, outcome=filters.outcome, q=filters.q) }}"
+        href="{{ url_for('web.attendance_logs_page', page=pagination.next_page, per_page=pagination.per_page, session_id=filters.session_id, outcome=filters.outcome, q=filters.q, category=filters.category, program=filters.program, level=filters.level) }}"
         class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold hover:bg-slate-50"
       >
         Next

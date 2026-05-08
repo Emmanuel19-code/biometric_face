@@ -1597,6 +1597,100 @@ def student_portal_page():
     )
 
 
+@web_bp.get("/student/papers")
+@web_bp.get("/student/papers", endpoint="student_papers_page")
+@student_portal_required
+def student_papers_page():
+    student_db_id = int(session.get("student_db_id"))
+    student = db_utils.fetch_one(
+        """
+        SELECT
+            id, student_id, first_name, last_name, email,
+            course, year_level, study_category, program_name, level_name,
+            profile_photo, is_active
+        FROM students
+        WHERE id = %s
+        LIMIT 1
+        """,
+        (student_db_id,),
+    )
+    if not student or not student.get("is_active"):
+        session.clear()
+        return redirect(url_for("web.student_login_page"))
+
+    rows = db_utils.fetch_all(
+        """
+        SELECT DISTINCT
+            ep.id AS paper_id,
+            ep.paper_code,
+            ep.paper_title,
+            es.id AS session_id,
+            es.session_name,
+            es.course_code,
+            es.venue,
+            es.start_time,
+            es.end_time,
+            es.is_active
+        FROM exam_papers ep
+        INNER JOIN examination_sessions es ON es.id = ep.session_id
+        WHERE
+            EXISTS (
+                SELECT 1
+                FROM student_course_registrations scr
+                WHERE scr.student_id = %s
+                  AND UPPER(scr.course_code) = UPPER(es.course_code)
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM exam_registrations er
+                WHERE er.student_id = %s
+                  AND er.session_id = es.id
+            )
+        ORDER BY es.start_time ASC, ep.created_at ASC, ep.id ASC
+        """,
+        (student_db_id, student_db_id),
+    )
+
+    now = datetime.utcnow()
+    grouped = {"past": [], "present": [], "future": []}
+    for r in rows:
+        start_time = r.get("start_time")
+        end_time = r.get("end_time")
+        if start_time and start_time > now:
+            bucket = "future"
+        elif end_time and end_time < now:
+            bucket = "past"
+        else:
+            bucket = "present"
+        grouped[bucket].append(
+            {
+                "paper_id": r.get("paper_id"),
+                "paper_code": r.get("paper_code"),
+                "paper_title": r.get("paper_title"),
+                "session_id": r.get("session_id"),
+                "session_name": r.get("session_name"),
+                "course_code": r.get("course_code"),
+                "venue": r.get("venue"),
+                "start_time": start_time,
+                "end_time": end_time,
+                "is_active": bool(r.get("is_active")),
+            }
+        )
+
+    return render_template(
+        "student/papers.html",
+        title="My Exam Papers",
+        student=student,
+        reports=grouped,
+        totals={
+            "past": len(grouped["past"]),
+            "present": len(grouped["present"]),
+            "future": len(grouped["future"]),
+            "all": len(rows),
+        },
+    )
+
+
 @web_bp.post("/student/courses/register")
 @student_portal_required
 def student_register_course():
@@ -2280,6 +2374,115 @@ def exam_session_page():
         registered=registered,
         selected_pause_state=selected_pause_state,
         can_manage_pause=_has_role("admin", "super_admin"),
+    )
+
+
+@web_bp.get("/exams/session/capture")
+@web_bp.get("/exams/session/capture", endpoint="exam_capture_page")
+@roles_required("invigilator", "lecturer", "admin", "super_admin")
+def exam_capture_page():
+    if _has_role("invigilator"):
+        admin_id = session.get("admin_id")
+        live_assignment = db_utils.fetch_one(
+            """
+            SELECT si.id
+            FROM session_invigilators si
+            INNER JOIN examination_sessions es ON es.id = si.session_id
+            WHERE si.invigilator_id = %s
+              AND si.is_active = TRUE
+              AND es.is_active = TRUE
+              AND CURRENT_TIMESTAMP BETWEEN es.start_time AND es.end_time
+            LIMIT 1
+            """,
+            (admin_id,),
+        )
+        if not live_assignment:
+            abort(403, description="Exam capture is unavailable until admin activates and assigns your session.")
+    if _has_role("lecturer"):
+        active_period = _get_current_open_exam_period()
+        if not active_period:
+            abort(403, description="Exam capture is unavailable. No active exam/midsem period is open.")
+
+    now = datetime.utcnow()
+    rows = db_utils.fetch_all(
+        """
+        SELECT id, session_name, course_code, venue, hall_id, start_time, end_time, is_active, allow_file_upload
+        FROM examination_sessions
+        ORDER BY start_time DESC
+        """
+    )
+    if _has_role("lecturer"):
+        admin_id = int(session.get("admin_id"))
+        assigned_codes = set(_lecturer_course_codes(admin_id))
+        rows = [
+            r for r in rows
+            if str(r.get("course_code") or "").strip().upper() in assigned_codes
+        ]
+
+    sessions = []
+    for row in rows:
+        start_time = row.get("start_time")
+        end_time = row.get("end_time")
+        is_active = bool(row.get("is_active"))
+        if is_active and start_time and end_time and start_time <= now <= end_time:
+            status = "live"
+        elif start_time and now < start_time:
+            status = "upcoming"
+        elif end_time and now > end_time:
+            status = "ended"
+        else:
+            status = "inactive"
+        sessions.append(
+            {
+                "id": row.get("id"),
+                "course_code": row.get("course_code"),
+                "course": row.get("course_code") or row.get("session_name") or "Untitled",
+                "title": row.get("session_name") or row.get("course_code") or "Untitled",
+                "hall_id": row.get("hall_id"),
+                "time": (
+                    f"{start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}"
+                    if start_time and end_time
+                    else "Time not set"
+                ),
+                "venue": row.get("venue") or "Venue not set",
+                "status": status,
+                "allow_file_upload": bool(row.get("allow_file_upload")),
+            }
+        )
+
+    selected = None
+    selected_id = request.args.get("session_id", type=int)
+    if selected_id is not None:
+        selected = next((s for s in sessions if s["id"] == selected_id), None)
+    if selected is None and sessions:
+        selected = sessions[0]
+
+    selected_pause_state = {
+        "verification_paused": False,
+        "time_paused": False,
+        "verification_reason": None,
+        "time_reason": None,
+    }
+    if selected:
+        pause_state = pause_controls.get_pause_state(
+            int(selected["id"]),
+            int(selected["hall_id"]) if selected.get("hall_id") is not None else None,
+        )
+        selected_pause_state = {
+            "verification_paused": bool(pause_state.get("verification_paused")),
+            "time_paused": bool(pause_state.get("time_paused")),
+            "verification_reason": (pause_state.get("verification_pause") or {}).get("reason"),
+            "time_reason": (pause_state.get("time_pause") or {}).get("reason"),
+        }
+
+    claimed_student_id = str(request.args.get("claimed_student_id") or "").strip()
+    return render_template(
+        "exams/session_capture.html",
+        title="Focused Capture Mode",
+        sessions=sessions,
+        selected=selected,
+        selected_pause_state=selected_pause_state,
+        claimed_student_id=claimed_student_id,
     )
 
 @web_bp.get("/attendance/logs")
@@ -4249,6 +4452,83 @@ def all_sessions_page():
             "next_page": page + 1,
             "start_item": (start_idx + 1) if total_count else 0,
             "end_item": min(end_idx, total_count),
+        },
+    )
+
+
+@web_bp.get("/reports/papers")
+@web_bp.get("/reports/papers", endpoint="papers_report_page")
+@roles_required("invigilator", "lecturer", "admin", "super_admin")
+def papers_report_page():
+    if _has_role("lecturer", "invigilator"):
+        active_period = _get_current_open_exam_period()
+        if not active_period:
+            abort(403, description="Paper reports are unavailable. No active exam/midsem period is open.")
+
+    rows = db_utils.fetch_all(
+        """
+        SELECT
+            ep.id AS paper_id,
+            ep.paper_code,
+            ep.paper_title,
+            ep.created_at AS paper_created_at,
+            es.id AS session_id,
+            es.session_name,
+            es.course_code,
+            es.venue,
+            es.start_time,
+            es.end_time,
+            es.is_active
+        FROM exam_papers ep
+        INNER JOIN examination_sessions es ON es.id = ep.session_id
+        ORDER BY es.start_time ASC, ep.created_at ASC, ep.id ASC
+        """
+    )
+
+    if _has_role("lecturer"):
+        assigned_codes = set(_lecturer_course_codes(int(session.get("admin_id"))))
+        rows = [
+            r for r in rows
+            if str(r.get("course_code") or "").strip().upper() in assigned_codes
+        ]
+
+    now = datetime.utcnow()
+    grouped = {"past": [], "present": [], "future": []}
+
+    for r in rows:
+        start_time = r.get("start_time")
+        end_time = r.get("end_time")
+        if start_time and start_time > now:
+            bucket = "future"
+        elif end_time and end_time < now:
+            bucket = "past"
+        else:
+            bucket = "present"
+
+        grouped[bucket].append(
+            {
+                "paper_id": r.get("paper_id"),
+                "paper_code": r.get("paper_code"),
+                "paper_title": r.get("paper_title"),
+                "session_id": r.get("session_id"),
+                "session_name": r.get("session_name"),
+                "course_code": r.get("course_code"),
+                "venue": r.get("venue"),
+                "start_time": start_time,
+                "end_time": end_time,
+                "is_active": bool(r.get("is_active")),
+            }
+        )
+
+    return render_template(
+        "exams/papers_report.html",
+        title="Paper Reports",
+        reports=grouped,
+        totals={
+            "past": len(grouped["past"]),
+            "present": len(grouped["present"]),
+            "future": len(grouped["future"]),
+            "all": len(rows),
         },
     )
 
@@ -7154,6 +7434,10 @@ def update_student_biometric_data(student_id):
             return jsonify({"error": "No valid images provided"}), 400
 
         student_service = _get_student_service()
+        for idx, img in enumerate(face_images):
+            quality_ok, quality_msg = student_service.face_engine.validate_image_quality(img)
+            if not quality_ok:
+                return jsonify({"error": f"Image {idx + 1} rejected: {quality_msg}"}), 400
         encodings = student_service.face_engine.capture_multiple_angles(face_images)
         if not encodings:
             return jsonify({"error": "Failed to extract biometric data from provided images"}), 400

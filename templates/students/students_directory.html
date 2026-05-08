@@ -137,7 +137,37 @@
         <div id="studentPasswordMsg" class="mt-2 text-xs text-slate-500"></div>
 
         <div class="mt-4 border-t border-slate-100 pt-3">
-          <div class="text-xs text-slate-500 mb-2">Update Biometric Data</div>
+          <div class="text-xs text-slate-500 mb-2">Update Biometric Data (Scan or Upload)</div>
+          <div class="rounded-2xl border border-slate-200 bg-black overflow-hidden relative">
+            <video id="biometricVideo" class="w-full h-40 object-cover" autoplay playsinline></video>
+            <div class="absolute top-2 left-2 text-[11px] px-2 py-1 rounded-full bg-white/15 text-white backdrop-blur">
+              Camera: <span id="biometricCamLabel">Stopped</span>
+            </div>
+          </div>
+          <canvas id="biometricCanvas" class="hidden"></canvas>
+          <div id="biometricCapturesWrap" class="mt-2 flex gap-2 overflow-x-auto pb-1"></div>
+          <div class="mt-2 flex flex-col sm:flex-row gap-2">
+            <button id="btnStartBiometricCamera"
+                    class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+                    type="button">
+              Start Camera
+            </button>
+            <button id="btnSwitchBiometricCamera"
+                    class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+                    type="button">
+              Switch Camera
+            </button>
+            <button id="btnCaptureBiometric"
+                    class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-semibold hover:bg-brand-700"
+                    type="button">
+              Capture Face
+            </button>
+            <button id="btnClearBiometricCaptures"
+                    class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+                    type="button">
+              Clear Captures
+            </button>
+          </div>
           <input id="biometricFiles" type="file" accept="image/*" multiple
                  class="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-200 file:bg-white file:px-3 file:py-2 file:text-xs">
           <div class="mt-2 flex flex-col sm:flex-row gap-2">
@@ -202,6 +232,18 @@
   const biometricFiles = document.getElementById("biometricFiles");
   const btnSaveBiometric = document.getElementById("btnSaveBiometric");
   const biometricMsg = document.getElementById("biometricMsg");
+  const biometricVideo = document.getElementById("biometricVideo");
+  const biometricCanvas = document.getElementById("biometricCanvas");
+  const biometricCamLabel = document.getElementById("biometricCamLabel");
+  const biometricCapturesWrap = document.getElementById("biometricCapturesWrap");
+  const btnStartBiometricCamera = document.getElementById("btnStartBiometricCamera");
+  const btnSwitchBiometricCamera = document.getElementById("btnSwitchBiometricCamera");
+  const btnCaptureBiometric = document.getElementById("btnCaptureBiometric");
+  const btnClearBiometricCaptures = document.getElementById("btnClearBiometricCaptures");
+  let biometricStream = null;
+  let biometricDevices = [];
+  let biometricActiveDeviceIndex = 0;
+  let biometricCaptures = [];
 
   function escapeHtml(str) {
     return String(str)
@@ -461,6 +503,8 @@
     studentPasswordMsg.textContent = "";
     setBiometricMsg("neutral", "");
     if (biometricFiles) biometricFiles.value = "";
+    biometricCaptures = [];
+    renderBiometricCaptures();
     editFirstName.value = student.first_name || "";
     editLastName.value = student.last_name || "";
     editEmail.value = (student.email && student.email !== "—") ? student.email : "";
@@ -473,6 +517,7 @@
   }
 
   function closeStudentModal() {
+    stopBiometricCamera();
     selectedStudentDbId = null;
     selectedStudentIndex = null;
     studentModal.classList.add("hidden");
@@ -535,6 +580,109 @@
     });
   }
 
+  function renderBiometricCaptures() {
+    biometricCapturesWrap.innerHTML = "";
+    if (!biometricCaptures.length) {
+      biometricCapturesWrap.innerHTML = `
+        <div class="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          No scanned captures yet.
+        </div>
+      `;
+      return;
+    }
+
+    biometricCaptures.forEach((img, idx) => {
+      const shell = document.createElement("div");
+      shell.className = "relative w-16 h-16 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 flex-shrink-0";
+      shell.innerHTML = `
+        <img src="${img}" class="w-full h-full object-cover" alt="Capture ${idx + 1}">
+        <button type="button" data-cap-idx="${idx}" class="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-[10px]">x</button>
+      `;
+      biometricCapturesWrap.appendChild(shell);
+    });
+
+    biometricCapturesWrap.querySelectorAll("button[data-cap-idx]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.getAttribute("data-cap-idx"));
+        if (!Number.isNaN(idx)) {
+          biometricCaptures.splice(idx, 1);
+          renderBiometricCaptures();
+        }
+      });
+    });
+  }
+
+  function stopBiometricCamera() {
+    if (!biometricStream) return;
+    biometricStream.getTracks().forEach((track) => track.stop());
+    biometricStream = null;
+    biometricCamLabel.textContent = "Stopped";
+  }
+
+  async function loadBiometricDevices() {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    biometricDevices = all.filter((d) => d.kind === "videoinput");
+    if (!biometricDevices.length) throw new Error("No camera devices found.");
+  }
+
+  async function startBiometricCameraPreferBack() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Camera API not supported in this browser.");
+    }
+    stopBiometricCamera();
+
+    try {
+      biometricStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false
+      });
+      biometricVideo.srcObject = biometricStream;
+      biometricCamLabel.textContent = "Back (preferred)";
+      return;
+    } catch (_) {}
+
+    await loadBiometricDevices();
+    biometricActiveDeviceIndex = 0;
+    biometricStream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: biometricDevices[biometricActiveDeviceIndex].deviceId } },
+      audio: false
+    });
+    biometricVideo.srcObject = biometricStream;
+    biometricCamLabel.textContent = "Default";
+  }
+
+  async function switchBiometricCamera() {
+    await loadBiometricDevices();
+    if (biometricDevices.length <= 1) {
+      setBiometricMsg("neutral", "Only one camera detected.");
+      return;
+    }
+    biometricActiveDeviceIndex = (biometricActiveDeviceIndex + 1) % biometricDevices.length;
+    stopBiometricCamera();
+    biometricStream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: biometricDevices[biometricActiveDeviceIndex].deviceId } },
+      audio: false
+    });
+    biometricVideo.srcObject = biometricStream;
+    biometricCamLabel.textContent = biometricDevices[biometricActiveDeviceIndex].label || `Camera ${biometricActiveDeviceIndex + 1}`;
+  }
+
+  function captureBiometricFrame() {
+    if (!biometricVideo.srcObject || !biometricVideo.videoWidth || !biometricVideo.videoHeight) {
+      setBiometricMsg("bad", "Start camera before capturing.");
+      return;
+    }
+    biometricCanvas.width = biometricVideo.videoWidth;
+    biometricCanvas.height = biometricVideo.videoHeight;
+    const ctx = biometricCanvas.getContext("2d");
+    ctx.drawImage(biometricVideo, 0, 0, biometricCanvas.width, biometricCanvas.height);
+    const dataUrl = biometricCanvas.toDataURL("image/jpeg", 0.92);
+    biometricCaptures.unshift(dataUrl);
+    if (biometricCaptures.length > 10) biometricCaptures = biometricCaptures.slice(0, 10);
+    renderBiometricCaptures();
+    setBiometricMsg("ok", "Capture added.");
+  }
+
   async function saveStudentEdits(event) {
     event.preventDefault();
     if (!selectedStudentIndex && !selectedStudentDbId) return;
@@ -587,8 +735,8 @@
   async function saveBiometricEdits() {
     if (!selectedStudentIndex && !selectedStudentDbId) return;
     const files = Array.from(biometricFiles?.files || []);
-    if (!files.length) {
-      setBiometricMsg("bad", "Select at least one image.");
+    if (!files.length && !biometricCaptures.length) {
+      setBiometricMsg("bad", "Capture or select at least one image.");
       return;
     }
 
@@ -597,7 +745,7 @@
 
     setBiometricMsg("neutral", "Processing biometric images...");
     try {
-      const faceImages = [];
+      const faceImages = [...biometricCaptures];
       for (const file of files.slice(0, 6)) {
         faceImages.push(await fileToDataUrl(file));
       }
@@ -621,6 +769,8 @@
       render();
       openStudentModal(updated);
       if (biometricFiles) biometricFiles.value = "";
+      biometricCaptures = [];
+      renderBiometricCaptures();
       setBiometricMsg("ok", "Biometric data updated successfully.");
     } catch (err) {
       setBiometricMsg("bad", err.message || "Biometric update failed.");
@@ -728,6 +878,27 @@
   btnCancelEditStudent?.addEventListener("click", hideEditForm);
   studentEditForm?.addEventListener("submit", saveStudentEdits);
   btnSaveBiometric?.addEventListener("click", saveBiometricEdits);
+  btnStartBiometricCamera?.addEventListener("click", async () => {
+    try {
+      await startBiometricCameraPreferBack();
+      setBiometricMsg("neutral", "Camera started.");
+    } catch (err) {
+      setBiometricMsg("bad", err.message || "Could not start camera.");
+    }
+  });
+  btnSwitchBiometricCamera?.addEventListener("click", async () => {
+    try {
+      await switchBiometricCamera();
+    } catch (err) {
+      setBiometricMsg("bad", err.message || "Could not switch camera.");
+    }
+  });
+  btnCaptureBiometric?.addEventListener("click", captureBiometricFrame);
+  btnClearBiometricCaptures?.addEventListener("click", () => {
+    biometricCaptures = [];
+    renderBiometricCaptures();
+    setBiometricMsg("neutral", "Captures cleared.");
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeStudentModal();
   });
@@ -753,6 +924,7 @@
     URL.revokeObjectURL(url);
   });
 
+  renderBiometricCaptures();
   loadStudents();
 </script>
 

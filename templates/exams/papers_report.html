@@ -1,0 +1,83 @@
+{% extends "layout.html" %}
+{% set title = "Paper Reports" %}
+{% block content %}
+
+<div class="mobile-panel bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+      <div class="text-sm font-semibold">Papers Report</div>
+      <div class="text-xs text-slate-500 mt-1">Papers grouped by Past, Present, and Future sessions.</div>
+    </div>
+    <div class="text-xs px-3 py-2 rounded-full bg-slate-100 text-slate-700">
+      Total Papers: {{ totals.all }}
+    </div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+    <div class="rounded-xl border border-rose-200 bg-rose-50 p-3">
+      <div class="text-xs text-rose-700">Past Papers</div>
+      <div class="text-xl font-bold text-rose-800 mt-1">{{ totals.past }}</div>
+    </div>
+    <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+      <div class="text-xs text-emerald-700">Present Papers</div>
+      <div class="text-xl font-bold text-emerald-800 mt-1">{{ totals.present }}</div>
+    </div>
+    <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
+      <div class="text-xs text-amber-700">Future Papers</div>
+      <div class="text-xl font-bold text-amber-800 mt-1">{{ totals.future }}</div>
+    </div>
+  </div>
+
+  {% macro papers_table(title, rows, tone) %}
+    <div class="mt-5">
+      <div class="flex items-center justify-between">
+        <div class="text-sm font-semibold">{{ title }}</div>
+        <div class="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">{{ rows|length }}</div>
+      </div>
+      {% if rows %}
+      <div class="mt-2 overflow-auto rounded-xl border border-slate-200">
+        <table class="w-full min-w-[860px] text-sm">
+          <thead class="bg-white text-slate-500 border-b">
+            <tr>
+              <th class="text-left py-2 px-3">Paper</th>
+              <th class="text-left py-2 px-3">Code</th>
+              <th class="text-left py-2 px-3">Session</th>
+              <th class="text-left py-2 px-3">Course</th>
+              <th class="text-left py-2 px-3">Venue</th>
+              <th class="text-left py-2 px-3">Start</th>
+              <th class="text-left py-2 px-3">End</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y bg-white">
+            {% for row in rows %}
+            <tr class="hover:bg-slate-50">
+              <td class="py-2 px-3 font-medium">{{ row.paper_title or "Untitled Paper" }}</td>
+              <td class="py-2 px-3">{{ row.paper_code or "N/A" }}</td>
+              <td class="py-2 px-3">
+                <a href="{{ url_for('web.session_activity_page', session_id=row.session_id) }}" class="text-brand-700 hover:underline">
+                  {{ row.session_name or ("Session #" ~ row.session_id) }}
+                </a>
+              </td>
+              <td class="py-2 px-3">{{ row.course_code or "N/A" }}</td>
+              <td class="py-2 px-3">{{ row.venue or "N/A" }}</td>
+              <td class="py-2 px-3 whitespace-nowrap">{{ row.start_time.strftime('%Y-%m-%d %H:%M') if row.start_time else "N/A" }}</td>
+              <td class="py-2 px-3 whitespace-nowrap">{{ row.end_time.strftime('%Y-%m-%d %H:%M') if row.end_time else "N/A" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        No papers in this section.
+      </div>
+      {% endif %}
+    </div>
+  {% endmacro %}
+
+  {{ papers_table("Present Papers", reports.present, "present") }}
+  {{ papers_table("Future Papers", reports.future, "future") }}
+  {{ papers_table("Past Papers", reports.past, "past") }}
+</div>
+
+{% endblock %}

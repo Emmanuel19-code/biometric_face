@@ -23,6 +23,12 @@
         Logout
       </a>
     </div>
+    <div class="mt-4">
+      <a href="{{ url_for('web.student_papers_page') }}"
+         class="inline-flex rounded-xl border border-brand-200 text-brand-700 px-4 py-2 text-sm font-semibold hover:bg-brand-50">
+        View My Papers (Past / Present / Future)
+      </a>
+    </div>
     {% if msg %}
     <div class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ msg }}</div>
     {% endif %}

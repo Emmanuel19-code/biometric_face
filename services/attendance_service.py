@@ -270,6 +270,12 @@ class AttendanceService:
             t = perf_counter()
             live_emb = self.face_engine.extract_live_embedding(live_image)
             mark("extract_live_embedding_ms", t)
+            quality_ok, quality_msg = self.face_engine.validate_image_quality(live_image)
+            if not quality_ok:
+                self._log_attempt(
+                    session_id, None, claimed, "FAIL", f"Invalid live image: {quality_msg}", 0.0, ip_address, device_info, station_id
+                )
+                return False, quality_msg, 0.0
             if live_emb is None:
                 self._log_attempt(
                     session_id, None, claimed, "FAIL", "No face detected in live image", 0.0, ip_address, device_info, station_id

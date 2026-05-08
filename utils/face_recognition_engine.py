@@ -228,6 +228,19 @@ class FaceRecognitionEngine:
             return None
         return x1, y1, x2, y2, 1.0
 
+    def _face_count_and_score_haar(self, rgb: np.ndarray) -> Tuple[int, float]:
+        if self._haar_detector is None:
+            return 0, 0.0
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        faces = self._haar_detector.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(60, 60),
+        )
+        count = int(len(faces))
+        return count, (1.0 if count > 0 else 0.0)
+
     def _detect_bbox_xyxy(self, rgb: np.ndarray) -> Optional[Tuple[int, int, int, int, float]]:
         """
         Uses MediaPipe FaceDetector task.
@@ -368,9 +381,18 @@ class FaceRecognitionEngine:
             if w < 200 or h < 200:
                 return False, "Image resolution too low. Minimum 200x200 required."
 
+            # Human-only safety gate: expect exactly one detectable face.
+            face_count, face_score = self.detect_face_count(image)
+            if face_count == 0:
+                return False, "No human face detected in image."
+            if face_count > 1:
+                return False, "Multiple faces detected. Use an image with one human face only."
+            if face_score < 0.30:
+                return False, "Face detection confidence is too low. Use a clearer human face image."
+
             det = self._detect_bbox_xyxy(rgb)
             if not det:
-                return False, "No face detected in image."
+                return False, "No human face detected in image."
 
             x1, y1, x2, y2, _ = det
             face_area_ratio = ((x2 - x1) * (y2 - y1)) / float(w * h)
@@ -381,6 +403,36 @@ class FaceRecognitionEngine:
         except Exception as e:
             logger.error(f"Image validation error: {e}")
             return False, f"Image validation failed: {e}"
+
+    def detect_face_count(self, image) -> Tuple[int, float]:
+        """
+        Returns:
+            (count, best_score)
+        count: number of detected faces
+        best_score: best confidence score among detections (0-1)
+        """
+        try:
+            rgb = self._to_rgb_np(image)
+            if self._mediapipe_ready and self._face_detector is not None:
+                try:
+                    from mediapipe import Image as mp_Image
+                    from mediapipe import ImageFormat as mp_ImageFormat
+
+                    mp_img = mp_Image(image_format=mp_ImageFormat.SRGB, data=rgb)
+                    res = self._face_detector.detect(mp_img)
+                    detections = list(res.detections or [])
+                    if detections:
+                        best = 0.0
+                        for det in detections:
+                            if det.categories:
+                                best = max(best, float(det.categories[0].score))
+                        return int(len(detections)), float(best)
+                    return self._face_count_and_score_haar(rgb)
+                except Exception:
+                    return self._face_count_and_score_haar(rgb)
+            return self._face_count_and_score_haar(rgb)
+        except Exception:
+            return 0, 0.0
 
     # -----------------------------
     # Liveness (blink + head turn)

@@ -206,6 +206,11 @@
               class="w-full sm:w-auto rounded-xl bg-brand-600 text-white px-4 py-3 font-semibold hover:bg-brand-700 transition">
         Verify Student
       </button>
+      <a id="btnCaptureMode"
+         href="{{ url_for('web.exam_capture_page', session_id=(selected.id if selected else None)) }}"
+         class="w-full sm:w-auto inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50 transition">
+        Open Focused Capture
+      </a>
 
       <button id="btnManual"
               class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50 transition">
@@ -453,6 +458,7 @@
   const pausedBanner = document.getElementById("pausedBanner");
   const btnPause = document.getElementById("btnPause");
   const btnVerify = document.getElementById("btnVerify");
+  const btnCaptureMode = document.getElementById("btnCaptureMode");
   const btnManual = document.getElementById("btnManual");
   const btnCapture = document.getElementById("btnCapture");
   const btnSwitch = document.getElementById("btnSwitch");
@@ -783,6 +789,12 @@
 
   btnPause?.addEventListener("click", togglePause);
   btnVerify?.addEventListener("click", verifyFromCapture);
+  btnCaptureMode?.addEventListener("click", (e) => {
+    const sid = getSessionId();
+    if (!sid) return;
+    const claimed = encodeURIComponent((claimedStudentIdInput?.value || "").trim());
+    btnCaptureMode.href = `{{ url_for('web.exam_capture_page') }}?session_id=${encodeURIComponent(sid)}&claimed_student_id=${claimed}`;
+  });
   btnLog?.addEventListener("click", () => null);
   btnPauseVerification?.addEventListener("click", () => runPauseAction("pause", "verification"));
   btnResumeVerification?.addEventListener("click", () => runPauseAction("resume", "verification"));

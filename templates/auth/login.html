@@ -1,7 +1,9 @@
 {% extends "layout_auth.html" %}
 {% block content %}
 
-<div class="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+<div class="lg:col-span-2 min-h-screen -m-6 flex items-center justify-center bg-cover bg-center bg-no-repeat"
+     style="background-image: linear-gradient(to right, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.2)), url('{{ url_for('static', filename='upsa-login-bg.jpeg') }}');">
+<div class="w-full max-w-xl bg-white/95 border border-slate-200 rounded-md px-10 py-8 shadow-2xl">
   <div class="text-brand-600 font-extrabold tracking-wide text-xl">UPSA</div>
   <div class="text-sm text-slate-600 mt-1">Exam Facial Verification System</div>
 
@@ -44,26 +46,7 @@
 </form>
 
 </div>
-
-<!--
-<div class="hidden lg:block bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
-  <div class="text-sm font-semibold">Key Features</div>
-  <ul class="mt-3 text-sm text-slate-600 space-y-2 list-disc list-inside">
-    <li>Fast identity verification using facial authentication</li>
-    <li>Automatic attendance capture with timestamps</li>
-    <li>Reduced queues and manual paperwork</li>
-    <li>Audit-friendly logs for exam integrity</li>
-  </ul>
-
-  <div class="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-    <div class="text-xs text-slate-500">Note</div>
-    <div class="text-sm text-slate-700 mt-1">
-      This is a frontend-only demo. API integration comes next.
-    </div>
-  </div>
 </div>
--->
-
 
 <script>
   (function () {

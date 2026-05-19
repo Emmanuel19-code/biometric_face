@@ -1,81 +1,79 @@
-{% extends "layout.html" %}
+﻿{% extends "layout.html" %}
 {% block content %}
 
-<!-- Stats -->
+<div class="rounded-3xl p-[1px] bg-gradient-to-r from-brand-200 via-amber-300 to-emerald-300 mb-4">
+  <div class="rounded-[calc(1.5rem-1px)] bg-white/90 backdrop-blur px-5 py-4">
+    <div class="text-sm font-semibold text-slate-800">Dashboard Overview</div>
+    <div class="text-xs text-slate-600 mt-1">Key verification and attendance metrics at a glance.</div>
+  </div>
+</div>
+
 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div class="bg-gradient-to-br from-amber-50 to-white border border-amber-100 rounded-2xl p-5 shadow-sm">
     <div class="flex items-start justify-between gap-3">
       <div>
         <div class="text-2xl font-extrabold">{{ stats.students }}</div>
         <div class="text-sm text-slate-600 mt-1">Total Students</div>
       </div>
-      <div class="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600">
-        👤
-      </div>
+      <div class="h-10 w-10 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-700 text-xs font-bold">STU</div>
     </div>
     <div class="mt-4 text-xs text-slate-500">All registered students in the system.</div>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div class="bg-gradient-to-br from-sky-50 to-white border border-sky-100 rounded-2xl p-5 shadow-sm">
     <div class="flex items-start justify-between gap-3">
       <div>
         <div class="text-2xl font-extrabold">{{ stats.sessions }}</div>
         <div class="text-sm text-slate-600 mt-1">Sessions Today</div>
       </div>
-      <div class="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600">
-        🗓️
-      </div>
+      <div class="h-10 w-10 rounded-2xl bg-sky-100 border border-sky-200 flex items-center justify-center text-sky-700 text-xs font-bold">SES</div>
     </div>
     <div class="mt-4 text-xs text-slate-500">Exam sessions scheduled for today.</div>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div class="bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 rounded-2xl p-5 shadow-sm">
     <div class="flex items-start justify-between gap-3">
       <div>
         <div class="text-2xl font-extrabold">{{ stats.verified }}</div>
         <div class="text-sm text-slate-600 mt-1">Verified Today</div>
       </div>
-      <div class="h-10 w-10 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700">
-        ✓
-      </div>
+      <div class="h-10 w-10 rounded-2xl bg-emerald-100 border border-emerald-200 flex items-center justify-center text-emerald-700 text-xs font-bold">OK</div>
     </div>
     <div class="mt-4 text-xs text-slate-500">Successful verifications recorded today.</div>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div class="bg-gradient-to-br from-rose-50 to-white border border-rose-100 rounded-2xl p-5 shadow-sm">
     <div class="flex items-start justify-between gap-3">
       <div>
         <div class="text-2xl font-extrabold">{{ stats.failed }}</div>
         <div class="text-sm text-slate-600 mt-1">Failed Today</div>
       </div>
-      <div class="h-10 w-10 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-700">
-        !
-      </div>
+      <div class="h-10 w-10 rounded-2xl bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-700 text-xs font-bold">ERR</div>
     </div>
     <div class="mt-4 text-xs text-slate-500">Failed verifications recorded today.</div>
   </div>
 </div>
 
 <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div class="bg-gradient-to-br from-brand-50 to-white border border-brand-200 rounded-2xl p-5 shadow-sm">
     <div class="text-sm font-semibold">Students By Category</div>
     <div class="mt-3 grid grid-cols-3 gap-3 text-sm">
-      <div class="rounded-xl border border-slate-200 p-3">
+      <div class="rounded-xl border border-slate-200 p-3 bg-white/80">
         <div class="text-slate-500 text-xs">Undergraduate</div>
         <div class="text-xl font-bold mt-1">{{ category_breakdown.undergraduate or 0 }}</div>
       </div>
-      <div class="rounded-xl border border-slate-200 p-3">
+      <div class="rounded-xl border border-slate-200 p-3 bg-white/80">
         <div class="text-slate-500 text-xs">Masters</div>
         <div class="text-xl font-bold mt-1">{{ category_breakdown.masters or 0 }}</div>
       </div>
-      <div class="rounded-xl border border-slate-200 p-3">
+      <div class="rounded-xl border border-slate-200 p-3 bg-white/80">
         <div class="text-slate-500 text-xs">PhD</div>
         <div class="text-xl font-bold mt-1">{{ category_breakdown.phd or 0 }}</div>
       </div>
     </div>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div class="bg-gradient-to-br from-white to-slate-50 border border-slate-200 rounded-2xl p-5 shadow-sm">
     <div class="text-sm font-semibold">Category Mix</div>
     {% set total_students = (stats.students or 0) %}
     {% set ug_pct = ((category_breakdown.undergraduate or 0) * 100 / total_students) if total_students else 0 %}
@@ -84,7 +82,7 @@
     <div class="mt-3 space-y-3 text-xs">
       <div>
         <div class="flex justify-between"><span>Undergraduate</span><span>{{ '%.1f'|format(ug_pct) }}%</span></div>
-        <div class="mt-1 h-2 rounded bg-slate-100 overflow-hidden"><div class="h-2 bg-slate-700" style="width: {{ ug_pct }}%"></div></div>
+        <div class="mt-1 h-2 rounded bg-slate-100 overflow-hidden"><div class="h-2 bg-brand-700" style="width: {{ ug_pct }}%"></div></div>
       </div>
       <div>
         <div class="flex justify-between"><span>Masters</span><span>{{ '%.1f'|format(ms_pct) }}%</span></div>
@@ -99,4 +97,3 @@
 </div>
 
 {% endblock %}
-

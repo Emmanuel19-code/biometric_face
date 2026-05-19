@@ -92,11 +92,11 @@
     {% set href = resolved if resolved else fallback_map.get(endpoint, '#') %}
     {% set is_active = (request.path == href) %}
     <a href="{{ href }}"
-       class="flex items-center gap-3 px-3 py-2 rounded-xl transition
+       class="flex items-center gap-3 px-3 py-2 rounded-xl transition text-slate-100
               {% if is_active %}
-                bg-brand-50 text-brand-700
+                bg-white/20 text-white
               {% else %}
-                hover:bg-brand-50 hover:text-brand-700
+                hover:bg-white/10 hover:text-white
               {% endif %}">
       <span class="text-sm font-medium">{{ label }}</span>
     </a>
@@ -113,42 +113,45 @@
 
       <aside id="sidebar"
              class="fixed lg:static inset-y-0 left-0 z-50
-                    w-72 bg-white border-r border-slate-200
+                    w-72 bg-brand-700 border-r border-white/10
                     h-screen flex flex-col overflow-hidden
                     transform -translate-x-full lg:translate-x-0
                     transition-transform duration-200 ease-in-out">
 
         <div class="px-5 py-5 flex items-start justify-between gap-3">
           <div>
-            <div class="text-brand-600 font-extrabold tracking-wide text-lg">UPSA</div>
-            <div class="text-xs text-slate-500 mt-1">Attendance and Verification</div>
+            <img src="{{ url_for('static', filename='upsa-logo.png') }}"
+                 alt="UPSA logo"
+                 class="h-12 w-auto object-contain">
+            <div class="text-white font-extrabold tracking-wide text-lg mt-2">UPSA</div>
+            <div class="text-xs text-slate-200 mt-1">Attendance and Verification</div>
 
-            <div class="mt-3 text-xs text-slate-600">
+            <div class="mt-3 text-xs text-slate-200">
               <div class="truncate">{{ user_email }}</div>
-              <div class="mt-1 inline-flex items-center px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+              <div class="mt-1 inline-flex items-center px-2 py-1 rounded-full bg-white/15 text-white">
                 {{ role|capitalize }}
               </div>
             </div>
           </div>
 
           <button id="btnCloseSidebar"
-                  class="lg:hidden rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+                  class="lg:hidden rounded-xl border border-white/20 px-3 py-2 text-sm text-white hover:bg-white/10">
             X
           </button>
         </div>
 
         <nav class="px-3 pb-6 overflow-y-auto flex-1 overscroll-contain">
-          <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-2 mb-2">Main</div>
+          <div class="text-[11px] uppercase tracking-widest text-slate-300 px-3 mt-2 mb-2">Main</div>
           {{ nav_link('web.dashboard_page', 'Dashboard', '*') }}
 
           {% if role in ['admin', 'super_admin'] %}
-            <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-5 mb-2">Students</div>
+            <div class="text-[11px] uppercase tracking-widest text-slate-300 px-3 mt-5 mb-2">Students</div>
             {{ nav_link('web.register_student_page', 'Register Student', '+') }}
             {{ nav_link('web.students_directory_page', 'Students Directory', '=') }}
           {% endif %}
 
           {% if role in ['invigilator', 'lecturer', 'admin', 'super_admin'] %}
-            <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-5 mb-2">Examinations</div>
+            <div class="text-[11px] uppercase tracking-widest text-slate-300 px-3 mt-5 mb-2">Examinations</div>
             {{ nav_link('web.exam_session_page', 'Exam Verification', 'E') }}
             {{ nav_link('web.verification_test_page', 'Verification Test', 'T') }}
             {{ nav_link('web.all_sessions_page', 'All Sessions', '#') }}
@@ -157,7 +160,7 @@
           {% endif %}
 
           {% if role in ['lecturer', 'admin', 'super_admin'] %}
-            <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-5 mb-2">Class Attendance</div>
+            <div class="text-[11px] uppercase tracking-widest text-slate-300 px-3 mt-5 mb-2">Class Attendance</div>
             {{ nav_link('web.class_attendance_page', 'Mark Attendance', 'C') }}
             {% if role in ['lecturer'] %}
             {{ nav_link('web.lecturer_teaching_scope_page', 'My Teaching Scope', 'Q') }}
@@ -166,7 +169,7 @@
           {% endif %}
 
           {% if role in ['admin', 'super_admin'] %}
-            <div class="text-[11px] uppercase tracking-widest text-slate-500 px-3 mt-5 mb-2">Admin</div>
+            <div class="text-[11px] uppercase tracking-widest text-slate-300 px-3 mt-5 mb-2">Admin</div>
             {{ nav_link('web.session_setup_page', 'Session Setup', 'S') }}
             {{ nav_link('web.halls_setup_page', 'Exam Halls', 'H') }}
             {{ nav_link('web.course_catalog_page', 'Program Setup', 'P') }}
@@ -185,9 +188,9 @@
           {% endif %}
 
           <div class="mt-6 px-3">
-            <div class="h-px bg-slate-200"></div>
+            <div class="h-px bg-white/20"></div>
             <a href="{{ (safe_url_for('web.logout_page') if safe_url_for is defined else '/logout') or '#' }}"
-               class="mt-3 inline-flex items-center gap-2 text-sm text-rose-600 hover:text-rose-700">
+               class="mt-3 inline-flex items-center gap-2 text-sm text-rose-200 hover:text-rose-100">
               <span><-</span> Logout
             </a>
           </div>

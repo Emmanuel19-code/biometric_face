@@ -1,37 +1,39 @@
-{% extends "layout.html" %}
+﻿{% extends "layout.html" %}
 {% set title = "Lecturer Dashboard" %}
 {% block content %}
 
 <div class="space-y-4">
-  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
-    <div class="text-sm font-semibold">Lecturer Dashboard</div>
-    <div class="text-sm text-slate-600 mt-1">Overview of your assigned departments, programs, levels and courses.</div>
+  <div class="rounded-3xl p-[1px] bg-gradient-to-r from-brand-200 via-sky-300 to-emerald-300">
+    <div class="rounded-[calc(1.5rem-1px)] bg-white/90 backdrop-blur p-4 sm:p-6">
+      <div class="text-sm font-semibold">Lecturer Dashboard</div>
+      <div class="text-sm text-slate-600 mt-1">Overview of your assigned departments, programs, levels and courses.</div>
+    </div>
   </div>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+    <div class="bg-gradient-to-br from-sky-50 to-white border border-sky-100 rounded-2xl p-4 shadow-sm">
       <div class="text-xs text-slate-500">Departments</div>
       <div class="text-2xl font-extrabold mt-1">{{ stats.departments or 0 }}</div>
     </div>
-    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+    <div class="bg-gradient-to-br from-amber-50 to-white border border-amber-100 rounded-2xl p-4 shadow-sm">
       <div class="text-xs text-slate-500">Programs</div>
       <div class="text-2xl font-extrabold mt-1">{{ stats.programs or 0 }}</div>
     </div>
-    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+    <div class="bg-gradient-to-br from-violet-50 to-white border border-violet-100 rounded-2xl p-4 shadow-sm">
       <div class="text-xs text-slate-500">Levels</div>
       <div class="text-2xl font-extrabold mt-1">{{ stats.levels or 0 }}</div>
     </div>
-    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+    <div class="bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 rounded-2xl p-4 shadow-sm">
       <div class="text-xs text-slate-500">Courses</div>
       <div class="text-2xl font-extrabold mt-1">{{ stats.courses or 0 }}</div>
     </div>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+  <div class="bg-gradient-to-br from-white to-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
     <div class="text-sm font-semibold">Assigned Courses</div>
     <div class="mt-3 flex flex-wrap gap-2">
       {% for c in assigned_courses %}
-      <span class="inline-flex rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs font-medium">
+      <span class="inline-flex rounded-full bg-brand-50 text-brand-700 border border-brand-200 px-3 py-1 text-xs font-medium">
         {{ c.course_code }}{% if c.course_title %} - {{ c.course_title }}{% endif %}
       </span>
       {% endfor %}
